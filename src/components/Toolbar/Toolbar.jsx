@@ -5,18 +5,11 @@ import { LogoSVG, WordmarkSVG } from '../Brand';
 export default function Toolbar({ onPreview }) {
   const {
     canUndo, canRedo, undo, redo, runSave,
-    selection, deleteShapes, duplicateShapes, groupShapes,
-    bulkDeleteOptionalElements,
+    selection, deleteItems, duplicateItems, groupItems,
   } = useEditor();
 
-  const shapeSelected = selection.type === 'shape' && selection.ids.length > 0;
-  const contentSelected = selection.type === 'content' && selection.ids.length > 0;
-  const canGroup = shapeSelected && selection.ids.length >= 2;
-
-  const handleDelete = () => {
-    if (shapeSelected) deleteShapes(selection.ids);
-    if (contentSelected) bulkDeleteOptionalElements(selection.ids);
-  };
+  const hasSelection = selection.ids.length > 0;
+  const canGroup = selection.ids.length >= 2;
 
   return (
     <div className="toolbar">
@@ -32,15 +25,15 @@ export default function Toolbar({ onPreview }) {
         Redo <span className="tbtn__key">⌘Y</span>
       </button>
 
-      <button className="tbtn" disabled={!canGroup} onClick={() => groupShapes(selection.ids)}>
+      <button className="tbtn" disabled={!canGroup} onClick={() => groupItems(selection.ids)}>
         Group <span className="tbtn__key">⌘G</span>
       </button>
 
-      <button className="tbtn" disabled={!shapeSelected} onClick={() => duplicateShapes(selection.ids)}>
+      <button className="tbtn" disabled={!hasSelection} onClick={() => duplicateItems(selection.ids)}>
         Duplicate <span className="tbtn__key">⌘D</span>
       </button>
 
-      <button className="tbtn" disabled={!shapeSelected && !contentSelected} onClick={handleDelete}>
+      <button className="tbtn" disabled={!hasSelection} onClick={() => deleteItems(selection.ids)}>
         Delete <span className="tbtn__key">Del</span>
       </button>
 

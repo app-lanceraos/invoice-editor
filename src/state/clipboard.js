@@ -1,8 +1,8 @@
 const KEY = 'invoice-editor:clipboard';
 
-// Clipboard payload shape:
-// { kind: 'shape', data: {...shape} }
-// { kind: 'content', elementType: 'dueDate', style: {...} }
+// Clipboard payload shape: { item: {...} } — a full unified canvas item
+// (shape or content, `item.kind` tells you which), copied wholesale.
+// Pasting always adds a new instance, same for either kind.
 
 export function copyToClipboard(payload) {
   try {

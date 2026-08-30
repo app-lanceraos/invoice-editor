@@ -5,17 +5,17 @@ const MIN_SAFE_AREA_PX = 80; // below this, a region can't realistically fit a l
 export function validateTemplate(template, railInsets) {
   const issues = [];
 
-  // 1. every required element must be present in some slot
+  // 1. every required element must have at least one instance on the canvas
   Object.entries(ELEMENT_TYPES).forEach(([type, def]) => {
     if (!def.required) return;
-    const present = Object.values(template.slots).some((list) => list.includes(type));
+    const present = template.items.some((i) => i.kind === 'content' && i.type === type);
     if (!present) issues.push({ level: 'error', message: `Required element "${def.label}" is missing.` });
   });
 
   // 2. optional block enabled but structurally empty (paymentMethods with no
   //    method lines would be an example in a real data-backed build — with
   //    fixed placeholder content this mostly guards future real-data wiring)
-  const paymentOn = (template.slots.lower || []).includes('paymentMethods');
+  const paymentOn = template.items.some((i) => i.kind === 'content' && i.type === 'paymentMethods');
   if (paymentOn && ELEMENT_TYPES.paymentMethods.render().length <= 1) {
     issues.push({ level: 'warning', message: 'Payment methods block is enabled but has no methods.' });
   }

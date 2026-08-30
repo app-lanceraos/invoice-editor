@@ -196,175 +196,23 @@ body {
   flex-shrink: 0;
 }
 
-/* Content elements now size to their own content (see .c-element below)
-   instead of stretching to fill their row/column, which means the flow
-   containers around them (content-safe-area's padding, a region's own
-   margins/gaps, a slot's leftover width past its last item) are frequently
-   empty — but as plain positioned boxes they'd still sit on top of the
-   decoration layer (shapes) and swallow clicks meant for it. Excluding this
-   whole non-visual chain from hit-testing, then explicitly re-enabling it
-   on the actual interactive leaves (.c-element, .slot-item, and .slot
-   itself when empty, so dropping into a blank region still works), lets a
-   shape underneath receive clicks anywhere its own element doesn't. */
-.content-safe-area {
+/* ---------- Canvas layer (unified shapes + content items) ---------- */
+
+.canvas-layer {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 32px;
-  transition: padding 80ms ease;
-  pointer-events: none;
 }
 
-.region {
-  position: relative;
-  pointer-events: none;
-}
-
-.region--header { display: flex; gap: 16px; margin-bottom: 20px; }
-.region--party { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
-.region--table { margin-bottom: 12px; }
-.region--totals { margin-left: auto; width: 220px; margin-bottom: 20px; }
-.region--lower { display: flex; justify-content: space-between; gap: 20px; margin-top: auto; }
-.region--signRow { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; }
-.region--footer { text-align: center; font-size: 8px; color: #a09a89; margin-top: 8px; }
-
-.slot {
-  flex: 1;
-  min-height: 24px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px;
-  border-radius: 6px;
-  transition: background 100ms ease, outline 100ms ease;
-  /* Base case (empty slot): stay a valid drop target for moving an element
-     into an otherwise-empty region, overriding the inherited none from
-     .region/.content-safe-area above. */
-  pointer-events: auto;
-}
-
-/* Totals is a fixed vertical stack of label/value rows, not a row-wrap of
-   small standalone widgets — keep it a column, and restore stretch so each
-   row spans the full totals width (label/value space-between needs it). */
-.region--totals .slot {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: stretch;
-}
-
-/* Once a slot actually has items, it still spans the full row via flex:1 —
-   the dead space past the last item needs to fall back through to none,
-   same reasoning as .region/.content-safe-area above. */
-.slot--has-items {
-  pointer-events: none;
-}
-
-.slot-item {
-  pointer-events: auto;
-}
-
-.slot--drag-target {
-  outline: 1.5px dashed var(--purple-500);
-  background: rgba(113, 82, 245, 0.06);
-}
-
-.slot--drag-active {
-  outline: 1.5px solid var(--purple-500);
-  background: rgba(113, 82, 245, 0.12);
-}
-
-.insertion-line {
-  height: 2px;
-  background: var(--purple-500);
-  border-radius: 2px;
-  margin: -4px 0;
-}
-
-.c-element {
-  display: inline-flex;
-  position: relative;
-  pointer-events: auto;
-  cursor: grab;
-  border-radius: 4px;
-  padding: 3px 5px;
-  outline-offset: 2px;
-}
-
-.c-element--selected { outline: 1.5px solid var(--purple-500); background: rgba(113, 82, 245, 0.06); }
-.c-element--dragging { opacity: 0.4; }
-
-/* Table is the one variant that's meant to fill its region edge-to-edge
-   rather than shrink to content. */
-.c-element--table { display: block; width: 100%; }
-
-.c-element__text { font-size: 10px; }
-.c-element__block .c-block__title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
-.c-element__block .c-block__line { font-size: 9px; }
-
-.c-block__title--selected,
-.c-block__line--selected {
-  outline: 1.5px solid var(--purple-500);
-  outline-offset: 1px;
-  background: rgba(113, 82, 245, 0.08);
-  border-radius: 3px;
-}
-
-.c-element__image-placeholder {
-  width: 42px; height: 42px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 7px; text-align: center;
-}
-
-.c-element__row { display: flex; justify-content: space-between; font-size: 9px; }
-.c-element__row--strong { font-weight: 700; font-size: 11px; border-top: 1px solid #262420; padding-top: 4px; }
-
-.c-element__table { width: 100%; border-collapse: collapse; font-size: 8.5px; }
-.c-element__table th { text-align: left; font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid #262420; padding-bottom: 4px; }
-.c-element__table td { padding: 4px 0; border-bottom: 0.5px solid #e5e1d6; }
-.c-element__table th:not(:first-child), .c-element__table td:not(:first-child) { text-align: right; }
-
-.c-element__resize-handle {
+/* One shared free-positioned box for every canvas item, shape or content.
+   Shapes and content items paint as two back-to-front groups (see
+   CanvasLayer.jsx) so shapes always stay background decoration, even
+   though items can now freely overlap within/across either group. */
+.item {
   position: absolute;
-  width: 8px; height: 8px;
-  background: white;
-  border: 1.5px solid var(--purple-500);
-  border-radius: 50%;
-  right: -4px; bottom: -4px;
-  cursor: se-resize;
-  pointer-events: auto;
+  box-sizing: border-box;
 }
 
-.c-element__rotate-handle {
-  position: absolute;
-  width: 8px; height: 8px;
-  background: white;
-  border: 1.5px solid var(--purple-500);
-  border-radius: 50%;
-  left: 50%;
-  top: -18px;
-  transform: translateX(-50%);
-  cursor: grab;
-  pointer-events: auto;
-  transition: box-shadow 100ms ease, border-width 100ms ease;
-}
-
-/* ---------- Decoration layer (shapes) ---------- */
-
-.decoration-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-.content-safe-area { z-index: 1; }
-
-.shape-el {
-  position: absolute;
-  cursor: grab;
-}
-
-.shape-el--selected::after {
+.item--selected::after {
   content: '';
   position: absolute;
   inset: -4px;
@@ -373,33 +221,94 @@ body {
   pointer-events: none;
 }
 
-.shape-el__resize-handle {
+/* The natural-size wrapper every item's actual content renders into —
+   `transform: scale(...)` (set inline, since it depends on the item's
+   current vs. natural size) stretches it to fill the resized box, so
+   resizing always scales what's rendered, not just the frame around it. */
+.item__scale {
+  transform-origin: top left;
+  overflow: hidden;
+}
+
+.item__text {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  padding: 3px 5px;
+  font-size: 10px;
+}
+
+.item__block {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  padding: 3px 5px;
+}
+
+.item__block-title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+.item__block-line { font-size: 9px; }
+
+.item__block-title--selected,
+.item__block-line--selected {
+  outline: 1.5px solid var(--purple-500);
+  outline-offset: 1px;
+  background: rgba(113, 82, 245, 0.08);
+  border-radius: 3px;
+}
+
+.item__image-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 7px; text-align: center;
+}
+
+.item__row {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  padding: 3px 5px;
+  display: flex; align-items: center; justify-content: space-between; font-size: 9px;
+}
+.item__row--strong { font-weight: 700; font-size: 11px; border-top: 1px solid #262420; padding-top: 4px; }
+
+.item__table { width: 100%; height: 100%; border-collapse: collapse; font-size: 8.5px; }
+.item__table th { text-align: left; font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid #262420; padding-bottom: 4px; }
+.item__table td { padding: 4px 0; border-bottom: 0.5px solid #e5e1d6; }
+.item__table th:not(:first-child), .item__table td:not(:first-child) { text-align: right; }
+
+.item__shape-fill {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Resize (8-point) + rotate handles ---------- */
+
+.item__resize-handle {
   position: absolute;
   width: 9px; height: 9px;
   background: white;
   border: 1.5px solid var(--purple-500);
   border-radius: 50%;
-  right: -5px; bottom: -5px;
-  cursor: se-resize;
+  transform: translate(-50%, -50%);
 }
 
-.shape-el__rotate-handle {
+.item__rotate-handle {
   position: absolute;
-  width: 9px; height: 9px;
+  width: 18px; height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: white;
+  color: var(--purple-500);
   border: 1.5px solid var(--purple-500);
   border-radius: 50%;
   left: 50%;
-  top: -22px;
+  top: -26px;
   transform: translateX(-50%);
   cursor: grab;
   transition: box-shadow 100ms ease, border-width 100ms ease;
 }
 
 /* Momentary feedback while a rotate drag is snapped to a straight
-   (0/90/180/270°) orientation — shared look for shapes and content elements. */
-.shape-el__rotate-handle--snapped,
-.c-element__rotate-handle--snapped {
+   (0/90/180/270°) orientation. */
+.item__rotate-handle--snapped {
   border-width: 2.5px;
   box-shadow: 0 0 0 3px rgba(113, 82, 245, 0.35);
 }

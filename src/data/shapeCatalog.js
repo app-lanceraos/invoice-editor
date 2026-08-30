@@ -28,6 +28,8 @@ export const createShape = (type, position = { x: 40, y: 40 }) => {
     y: position.y,
     width: def.defaultSize.width,
     height: def.defaultSize.height,
+    naturalWidth: def.defaultSize.width,
+    naturalHeight: def.defaultSize.height,
     rotation: 0,
     ...def.defaultProps,
   };

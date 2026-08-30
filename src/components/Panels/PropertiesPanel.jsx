@@ -3,127 +3,138 @@ import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 
 // Variants whose text is split into an independently-styleable title/body
-// (see elementStyles[type].title / .body) — kept in sync with ContentElement.
+// (see item.title / item.body) — kept in sync with CanvasItem.
 const SUB_PART_VARIANTS = new Set(['block', 'qr']);
 
-function PartProperties({ type, part }) {
-  const { template, updateElementPartStyle } = useEditor();
-  const partStyle = (template.elementStyles[type] && template.elementStyles[type][part]) || {};
+function PartProperties({ item, part }) {
+  const { updateItemPart } = useEditor();
+  const partStyle = item[part] || {};
   const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
 
   return (
     <>
       <div className="panel__section-title">
-        {ELEMENT_TYPES[type].label} — {part === 'title' ? 'Title' : 'Body'}
+        {ELEMENT_TYPES[item.type].label} — {part === 'title' ? 'Title' : 'Body'}
       </div>
       <div className="prop-row">
         <label>Text color</label>
-        <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateElementPartStyle(type, part, { textColor: e.target.value })} />
+        <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
       </div>
       <div className="prop-row">
         <label>Background</label>
-        <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateElementPartStyle(type, part, { bgColor: e.target.value })} />
+        <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
       </div>
       <div className="prop-row">
         <label>Border color</label>
-        <input type="color" value={partStyle.borderColor || '#262420'} onChange={(e) => updateElementPartStyle(type, part, { borderColor: e.target.value })} />
+        <input type="color" value={partStyle.borderColor || '#262420'} onChange={(e) => updateItemPart(item.id, part, { borderColor: e.target.value })} />
       </div>
       <div className="prop-row">
         <label>Border width</label>
-        <input type="range" min="0" max="6" value={partStyle.borderWidth || 0} onChange={(e) => updateElementPartStyle(type, part, { borderWidth: Number(e.target.value) })} />
+        <input type="range" min="0" max="6" value={partStyle.borderWidth || 0} onChange={(e) => updateItemPart(item.id, part, { borderWidth: Number(e.target.value) })} />
       </div>
     </>
   );
 }
 
-function ContentProperties({ types, part }) {
-  const { template, bulkUpdateElements } = useEditor();
-
-  if (part && types.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[types[0]].variant)) {
-    return <PartProperties type={types[0]} part={part} />;
-  }
-
-  const first = template.elementStyles[types[0]] || {};
-  const hideTextColor = types.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[types[0]].variant);
+function ContentProperties({ items }) {
+  const { updateItems } = useEditor();
+  const ids = items.map((i) => i.id);
+  const first = items[0];
+  const hideTextColor = items.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[first.type].variant);
 
   return (
     <>
       <div className="panel__section-title">
-        {types.length > 1 ? `${types.length} elements selected` : ELEMENT_TYPES[types[0]].label}
+        {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
       </div>
       {!hideTextColor && (
         <div className="prop-row">
           <label>Text color</label>
-          <input type="color" value={first.textColor || '#262420'} onChange={(e) => bulkUpdateElements(types, { textColor: e.target.value })} />
+          <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
         </div>
       )}
       <div className="prop-row">
         <label>Background</label>
-        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => bulkUpdateElements(types, { bgColor: e.target.value })} />
+        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
       </div>
       <div className="prop-row">
         <label>Border color</label>
-        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => bulkUpdateElements(types, { borderColor: e.target.value })} />
+        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
       </div>
       <div className="prop-row">
         <label>Border width</label>
-        <input type="range" min="0" max="6" value={first.borderWidth || 0} onChange={(e) => bulkUpdateElements(types, { borderWidth: Number(e.target.value) })} />
+        <input type="range" min="0" max="6" value={first.borderWidth || 0} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
       </div>
     </>
   );
 }
 
-function ShapeProperties({ ids }) {
-  const { template, updateShapes } = useEditor();
-  const shapes = template.shapes.filter((s) => ids.includes(s.id));
-  const first = shapes[0];
-  if (!first) return null;
+function ShapeProperties({ items }) {
+  const { updateItems } = useEditor();
+  const ids = items.map((i) => i.id);
+  const first = items[0];
 
   return (
     <>
-      <div className="panel__section-title">{ids.length > 1 ? `${ids.length} shapes selected` : 'Shape'}</div>
+      <div className="panel__section-title">{items.length > 1 ? `${items.length} shapes selected` : 'Shape'}</div>
       <div className="prop-row">
         <label>Fill</label>
-        <input type="color" value={first.fill} onChange={(e) => updateShapes(ids, () => ({ fill: e.target.value }))} />
+        <input type="color" value={first.fill} onChange={(e) => updateItems(ids, () => ({ fill: e.target.value }))} />
       </div>
       <div className="prop-row">
         <label>Border color</label>
-        <input type="color" value={first.borderColor === 'transparent' ? '#000000' : first.borderColor} onChange={(e) => updateShapes(ids, () => ({ borderColor: e.target.value }))} />
+        <input type="color" value={first.borderColor === 'transparent' ? '#000000' : first.borderColor} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
       </div>
       <div className="prop-row">
         <label>Border width</label>
-        <input type="range" min="0" max="8" value={first.borderWidth} onChange={(e) => updateShapes(ids, () => ({ borderWidth: Number(e.target.value) }))} />
+        <input type="range" min="0" max="8" value={first.borderWidth} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
       </div>
       {first.type === 'roundedRect' && (
         <div className="prop-row">
           <label>Corner radius</label>
-          <input type="range" min="0" max="60" value={first.radius} onChange={(e) => updateShapes(ids, () => ({ radius: Number(e.target.value) }))} />
+          <input type="range" min="0" max="60" value={first.radius} onChange={(e) => updateItems(ids, () => ({ radius: Number(e.target.value) }))} />
         </div>
       )}
       <div className="prop-row">
         <label>Width</label>
-        <input type="number" value={Math.round(first.width)} onChange={(e) => updateShapes(ids, () => ({ width: Number(e.target.value) }))} />
+        <input type="number" value={Math.round(first.width)} onChange={(e) => updateItems(ids, () => ({ width: Number(e.target.value) }))} />
       </div>
       <div className="prop-row">
         <label>Height</label>
-        <input type="number" value={Math.round(first.height)} onChange={(e) => updateShapes(ids, () => ({ height: Number(e.target.value) }))} />
+        <input type="number" value={Math.round(first.height)} onChange={(e) => updateItems(ids, () => ({ height: Number(e.target.value) }))} />
       </div>
       <div className="prop-row">
         <label>Rotation</label>
-        <input type="range" min="-180" max="180" value={first.rotation} onChange={(e) => updateShapes(ids, () => ({ rotation: Number(e.target.value) }))} />
+        <input type="range" min="-180" max="180" value={first.rotation} onChange={(e) => updateItems(ids, () => ({ rotation: Number(e.target.value) }))} />
       </div>
     </>
   );
 }
 
 export default function PropertiesPanel() {
-  const { selection, saveState } = useEditor();
+  const { template, selection, saveState } = useEditor();
+  const selectedItems = template.items.filter((i) => selection.ids.includes(i.id));
+  const partItem = selection.part ? template.items.find((i) => i.id === selection.part.id) : null;
+  const kinds = new Set(selectedItems.map((i) => i.kind));
 
   return (
     <div className="panel panel--right">
-      {selection.type === 'content' && selection.ids.length > 0 && <ContentProperties types={selection.ids} part={selection.part} />}
-      {selection.type === 'shape' && selection.ids.length > 0 && <ShapeProperties ids={selection.ids} />}
-      {!selection.type && (
+      {partItem && SUB_PART_VARIANTS.has(ELEMENT_TYPES[partItem.type].variant) ? (
+        <PartProperties item={partItem} part={selection.part.key} />
+      ) : (
+        <>
+          {selectedItems.length > 0 && kinds.size === 1 && kinds.has('content') && (
+            <ContentProperties items={selectedItems} />
+          )}
+          {selectedItems.length > 0 && kinds.size === 1 && kinds.has('shape') && (
+            <ShapeProperties items={selectedItems} />
+          )}
+          {selectedItems.length > 0 && kinds.size > 1 && (
+            <div className="panel__section-title">{selectedItems.length} items selected (mixed)</div>
+          )}
+        </>
+      )}
+      {selectedItems.length === 0 && (
         <p className="empty-hint">
           Select a content element or shape on the canvas to edit its style here.
         </p>
