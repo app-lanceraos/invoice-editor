@@ -1,0 +1,484 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Doto:wght@600&display=swap');
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+/* ---------- Toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-glass);
+  border-bottom: 1px solid var(--border-glass);
+  backdrop-filter: blur(16px);
+  z-index: 10;
+}
+
+.toolbar__spacer { flex: 1; }
+
+.tbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-family: var(--font-display);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.tbtn:hover:not(:disabled) {
+  border-color: var(--border-glass-strong);
+  background: rgba(168, 156, 242, 0.08);
+}
+
+.tbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.tbtn--primary {
+  background: var(--purple-500);
+  border-color: var(--purple-500);
+  color: white;
+  font-weight: 600;
+}
+
+.tbtn--primary:hover:not(:disabled) {
+  background: #8264F7;
+  border-color: #8264F7;
+}
+
+.tbtn__key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-glass);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ---------- Main layout ---------- */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  min-height: 0;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-glass);
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.panel--right {
+  border-right: none;
+  border-left: 1px solid var(--border-glass);
+}
+
+.panel__section-title {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 18px 0 8px;
+}
+
+.panel__section-title:first-child { margin-top: 0; }
+
+.lib-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-panel-raised);
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+
+.lib-item--locked { opacity: 0.55; }
+
+.lib-item__toggle {
+  width: 30px;
+  height: 17px;
+  border-radius: 20px;
+  background: var(--border-glass-strong);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+
+.lib-item__toggle--on { background: var(--purple-500); }
+
+.lib-item__toggle__dot {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 120ms ease;
+}
+
+.lib-item__toggle--on .lib-item__toggle__dot { transform: translateX(13px); }
+
+.shape-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.shape-btn:hover { border-color: var(--border-glass-strong); }
+
+.shape-swatch {
+  width: 20px;
+  height: 20px;
+  background: var(--purple-500);
+  flex-shrink: 0;
+}
+.shape-swatch--rect { border-radius: 5px; }
+.shape-swatch--ellipse { border-radius: 50%; }
+.shape-swatch--line { height: 3px; border-radius: 2px; margin: 8px 0; }
+
+/* ---------- Canvas ---------- */
+
+.canvas-scroll {
+  overflow: auto;
+  background: radial-gradient(circle at 50% 0%, #0d0d18 0%, var(--bg-base) 60%);
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.page-frame {
+  position: relative;
+  width: 794px;
+  height: 1123px;
+  background: var(--page-bg);
+  color: var(--page-text);
+  box-shadow: var(--shadow-panel);
+  flex-shrink: 0;
+}
+
+/* Content elements now size to their own content (see .c-element below)
+   instead of stretching to fill their row/column, which means the flow
+   containers around them (content-safe-area's padding, a region's own
+   margins/gaps, a slot's leftover width past its last item) are frequently
+   empty — but as plain positioned boxes they'd still sit on top of the
+   decoration layer (shapes) and swallow clicks meant for it. Excluding this
+   whole non-visual chain from hit-testing, then explicitly re-enabling it
+   on the actual interactive leaves (.c-element, .slot-item, and .slot
+   itself when empty, so dropping into a blank region still works), lets a
+   shape underneath receive clicks anywhere its own element doesn't. */
+.content-safe-area {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+  transition: padding 80ms ease;
+  pointer-events: none;
+}
+
+.region {
+  position: relative;
+  pointer-events: none;
+}
+
+.region--header { display: flex; gap: 16px; margin-bottom: 20px; }
+.region--party { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.region--table { margin-bottom: 12px; }
+.region--totals { margin-left: auto; width: 220px; margin-bottom: 20px; }
+.region--lower { display: flex; justify-content: space-between; gap: 20px; margin-top: auto; }
+.region--signRow { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; }
+.region--footer { text-align: center; font-size: 8px; color: #a09a89; margin-top: 8px; }
+
+.slot {
+  flex: 1;
+  min-height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 6px;
+  transition: background 100ms ease, outline 100ms ease;
+  /* Base case (empty slot): stay a valid drop target for moving an element
+     into an otherwise-empty region, overriding the inherited none from
+     .region/.content-safe-area above. */
+  pointer-events: auto;
+}
+
+/* Totals is a fixed vertical stack of label/value rows, not a row-wrap of
+   small standalone widgets — keep it a column, and restore stretch so each
+   row spans the full totals width (label/value space-between needs it). */
+.region--totals .slot {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+/* Once a slot actually has items, it still spans the full row via flex:1 —
+   the dead space past the last item needs to fall back through to none,
+   same reasoning as .region/.content-safe-area above. */
+.slot--has-items {
+  pointer-events: none;
+}
+
+.slot-item {
+  pointer-events: auto;
+}
+
+.slot--drag-target {
+  outline: 1.5px dashed var(--purple-500);
+  background: rgba(113, 82, 245, 0.06);
+}
+
+.slot--drag-active {
+  outline: 1.5px solid var(--purple-500);
+  background: rgba(113, 82, 245, 0.12);
+}
+
+.insertion-line {
+  height: 2px;
+  background: var(--purple-500);
+  border-radius: 2px;
+  margin: -4px 0;
+}
+
+.c-element {
+  display: inline-flex;
+  position: relative;
+  pointer-events: auto;
+  cursor: grab;
+  border-radius: 4px;
+  padding: 3px 5px;
+  outline-offset: 2px;
+}
+
+.c-element--selected { outline: 1.5px solid var(--purple-500); background: rgba(113, 82, 245, 0.06); }
+.c-element--dragging { opacity: 0.4; }
+
+/* Table is the one variant that's meant to fill its region edge-to-edge
+   rather than shrink to content. */
+.c-element--table { display: block; width: 100%; }
+
+.c-element__text { font-size: 10px; }
+.c-element__block .c-block__title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+.c-element__block .c-block__line { font-size: 9px; }
+
+.c-block__title--selected,
+.c-block__line--selected {
+  outline: 1.5px solid var(--purple-500);
+  outline-offset: 1px;
+  background: rgba(113, 82, 245, 0.08);
+  border-radius: 3px;
+}
+
+.c-element__image-placeholder {
+  width: 42px; height: 42px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 7px; text-align: center;
+}
+
+.c-element__row { display: flex; justify-content: space-between; font-size: 9px; }
+.c-element__row--strong { font-weight: 700; font-size: 11px; border-top: 1px solid #262420; padding-top: 4px; }
+
+.c-element__table { width: 100%; border-collapse: collapse; font-size: 8.5px; }
+.c-element__table th { text-align: left; font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid #262420; padding-bottom: 4px; }
+.c-element__table td { padding: 4px 0; border-bottom: 0.5px solid #e5e1d6; }
+.c-element__table th:not(:first-child), .c-element__table td:not(:first-child) { text-align: right; }
+
+.c-element__resize-handle {
+  position: absolute;
+  width: 8px; height: 8px;
+  background: white;
+  border: 1.5px solid var(--purple-500);
+  border-radius: 50%;
+  right: -4px; bottom: -4px;
+  cursor: se-resize;
+  pointer-events: auto;
+}
+
+.c-element__rotate-handle {
+  position: absolute;
+  width: 8px; height: 8px;
+  background: white;
+  border: 1.5px solid var(--purple-500);
+  border-radius: 50%;
+  left: 50%;
+  top: -18px;
+  transform: translateX(-50%);
+  cursor: grab;
+  pointer-events: auto;
+  transition: box-shadow 100ms ease, border-width 100ms ease;
+}
+
+/* ---------- Decoration layer (shapes) ---------- */
+
+.decoration-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.content-safe-area { z-index: 1; }
+
+.shape-el {
+  position: absolute;
+  cursor: grab;
+}
+
+.shape-el--selected::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid var(--purple-500);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.shape-el__resize-handle {
+  position: absolute;
+  width: 9px; height: 9px;
+  background: white;
+  border: 1.5px solid var(--purple-500);
+  border-radius: 50%;
+  right: -5px; bottom: -5px;
+  cursor: se-resize;
+}
+
+.shape-el__rotate-handle {
+  position: absolute;
+  width: 9px; height: 9px;
+  background: white;
+  border: 1.5px solid var(--purple-500);
+  border-radius: 50%;
+  left: 50%;
+  top: -22px;
+  transform: translateX(-50%);
+  cursor: grab;
+  transition: box-shadow 100ms ease, border-width 100ms ease;
+}
+
+/* Momentary feedback while a rotate drag is snapped to a straight
+   (0/90/180/270°) orientation — shared look for shapes and content elements. */
+.shape-el__rotate-handle--snapped,
+.c-element__rotate-handle--snapped {
+  border-width: 2.5px;
+  box-shadow: 0 0 0 3px rgba(113, 82, 245, 0.35);
+}
+
+.rail-overlay {
+  position: absolute;
+  border: 1.5px dashed var(--purple-300);
+  background: rgba(168, 156, 242, 0.08);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---------- Properties panel ---------- */
+
+.prop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.prop-row label { color: var(--text-secondary); }
+
+.prop-row input[type="color"] {
+  width: 32px; height: 24px;
+  border: 1px solid var(--border-glass);
+  border-radius: 4px;
+  background: none;
+  padding: 0;
+}
+
+.prop-row input[type="range"],
+.prop-row input[type="number"] {
+  width: 110px;
+  accent-color: var(--purple-500);
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+.validation-list {
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-glass);
+}
+
+.validation-item {
+  font-size: 11.5px;
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.validation-item--error { color: var(--danger); }
+.validation-item--warning { color: var(--warning); }
+
+/* ---------- Preview modal ---------- */
+
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+
+.modal-close {
+  position: absolute;
+  top: 24px; right: 32px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
