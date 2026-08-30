@@ -241,6 +241,8 @@ body {
   box-sizing: border-box;
   width: 100%; height: 100%;
   padding: 3px 5px;
+  display: flex;
+  flex-direction: column;
 }
 
 .item__block-title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
@@ -278,6 +280,53 @@ body {
   height: 100%;
 }
 
+.item__qr-wrap {
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.item__qr-wrap--selected {
+  outline: 1.5px solid var(--purple-500);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.item__qr-svg {
+  width: 100%;
+  height: 100%;
+  shape-rendering: crispEdges;
+}
+
+.item__footer {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px 0;
+  border-top: 1px solid #e5e1d6;
+  font-size: 7px;
+  line-height: 1.6;
+  color: #a09a89;
+}
+
+.item__footer-right {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  /* Local override: the wordmark's own fill (`var(--wordmark)`) is tuned
+     for the dark toolbar; on the light page it needs a muted color that
+     matches this footer's own text instead of the global token. */
+  --wordmark: #a09a89;
+}
+
 /* ---------- Resize (8-point) + rotate handles ---------- */
 
 .item__resize-handle {
@@ -312,6 +361,22 @@ body {
   border-width: 2.5px;
   box-shadow: 0 0 0 3px rgba(113, 82, 245, 0.35);
 }
+
+/* Boundary-contact feedback: while a drag/resize gesture has clamped an
+   item flush against a page edge, glow that edge; cleared the instant the
+   item moves away or the gesture ends (see CanvasItem's clampToPage use). */
+.page-edge-glow {
+  position: absolute;
+  background: var(--purple-500);
+  box-shadow: 0 0 8px 1px var(--purple-glow);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.page-edge-glow--top { top: 0; left: 0; right: 0; height: 3px; }
+.page-edge-glow--bottom { bottom: 0; left: 0; right: 0; height: 3px; }
+.page-edge-glow--left { top: 0; bottom: 0; left: 0; width: 3px; }
+.page-edge-glow--right { top: 0; bottom: 0; right: 0; width: 3px; }
 
 .rail-overlay {
   position: absolute;

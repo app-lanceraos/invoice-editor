@@ -95,3 +95,90 @@ export function resizeRotatedBox(start, handle, dx, dy, minSize = 16) {
     height: newHeight,
   };
 }
+
+// Simple v1 edge-alignment snap: compare a dragged item's left/center/right
+// (or top/center/bottom) against a flat list of candidate edges — other
+// items' edges, page edges, whatever the caller supplies — and if the
+// closest pair is within `tolerance`, return the small delta that would
+// align them exactly.
+export function snapAxis(pos, size, otherEdges, tolerance = 4) {
+  const points = [pos, pos + size / 2, pos + size];
+  let best = 0;
+  let bestDist = tolerance;
+  points.forEach((p) => {
+    otherEdges.forEach((oe) => {
+      const d = oe - p;
+      if (Math.abs(d) <= bestDist) {
+        bestDist = Math.abs(d);
+        best = d;
+      }
+    });
+  });
+  return best;
+}
+
+// Hard boundary constraint for a MOVE: clamp a box's position so it never
+// leaves [0,page.width]x[0,page.height], while still allowing it to sit
+// exactly flush against an edge (needed for the existing edge-rail shape
+// behavior). Also reports which edges the (clamped) box is now touching,
+// so the caller can drive an edge-contact highlight. Width/height don't
+// change here — a move only ever slides x/y.
+export function clampToPage(box, page) {
+  const width = Math.min(box.width, page.width);
+  const height = Math.min(box.height, page.height);
+  const x = Math.max(0, Math.min(box.x, page.width - width));
+  const y = Math.max(0, Math.min(box.y, page.height - height));
+  return {
+    x,
+    y,
+    width,
+    height,
+    edges: {
+      left: x <= 0.5,
+      right: x + width >= page.width - 0.5,
+      top: y <= 0.5,
+      bottom: y + height >= page.height - 0.5,
+    },
+  };
+}
+
+// Hard boundary constraint for a RESIZE. Unlike a move, a resize has a
+// FIXED edge (whichever one the dragged handle isn't on — see
+// resizeRotatedBox) that must never shift; only the growing edge's extent
+// gets capped at the page boundary. Using the position-only clampToPage
+// here would incorrectly slide the fixed edge inward instead, breaking
+// the "opposite corner/edge stays put" contract of a resize gesture.
+export function clampResizeToPage(box, handle, page, minSize = 16) {
+  let { x, y, width, height } = box;
+
+  if (handle.fx === 1) {
+    if (x < 0) { width += x; x = 0; }
+    width = Math.max(minSize, Math.min(width, page.width - x));
+  } else if (handle.fx === 0) {
+    const right = x + width;
+    x = Math.max(0, x);
+    width = Math.max(minSize, right - x);
+  }
+
+  if (handle.fy === 1) {
+    if (y < 0) { height += y; y = 0; }
+    height = Math.max(minSize, Math.min(height, page.height - y));
+  } else if (handle.fy === 0) {
+    const bottom = y + height;
+    y = Math.max(0, y);
+    height = Math.max(minSize, bottom - y);
+  }
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    edges: {
+      left: x <= 0.5,
+      right: x + width >= page.width - 0.5,
+      top: y <= 0.5,
+      bottom: y + height >= page.height - 0.5,
+    },
+  };
+}

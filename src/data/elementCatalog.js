@@ -1,3 +1,5 @@
+import { create as createQRCode } from 'qrcode/lib/core/qrcode.js';
+
 // Every content element the editor knows about. Elements are FIXED WIDGETS —
 // users never type invoice data, they only toggle, restyle, position, resize
 // and rotate them. `render` returns the static display string/structure baked
@@ -10,6 +12,32 @@
 // point; nothing after creation depends on these values, they're just seed
 // data for `initialTemplateState` and for whatever appears when re-toggling
 // an element back on.
+
+// 'From' and the fixed footer both show the same business identity — one
+// source, referenced by both, so they can never drift into separate copies
+// of what's meant to be the same fixed demo data.
+const FROM_BUSINESS_NAME = 'Business Name';
+const FROM_EMAIL = 'owner@business.com';
+
+// The QR pattern is generated once, at module load, from the same static
+// demo link already shown as text — `qrcode`'s synchronous `create()` (the
+// core encoder, no canvas/PNG renderer pulled in) hands back the raw module
+// matrix, which we turn into a single SVG path of unit squares ourselves.
+// A real vector path — not a rasterized image — so it scales cleanly
+// through the same CSS transform every other item's content does.
+const PAY_LINK = 'pay.example.com/inv-0001';
+const qr = createQRCode(PAY_LINK, { errorCorrectionLevel: 'M' });
+const QR_SIZE = qr.modules.size;
+const QR_PATH = (() => {
+  const data = qr.modules.data;
+  let d = '';
+  for (let row = 0; row < QR_SIZE; row++) {
+    for (let col = 0; col < QR_SIZE; col++) {
+      if (data[row * QR_SIZE + col]) d += `M${col},${row}h1v1h-1z`;
+    }
+  }
+  return d;
+})();
 
 export const ELEMENT_TYPES = {
   logo: {
@@ -47,7 +75,7 @@ export const ELEMENT_TYPES = {
   },
   dueDate: {
     label: 'Due date',
-    required: false,
+    required: true,
     defaultOn: true,
     variant: 'text',
     defaultBox: { x: 508, y: 36, width: 150, height: 18 },
@@ -67,7 +95,7 @@ export const ELEMENT_TYPES = {
     defaultOn: true,
     variant: 'block',
     defaultBox: { x: 222, y: 100, width: 170, height: 95 },
-    render: () => ['From', 'Business Name', '456 Business Ave', 'owner@business.com'],
+    render: () => ['From', FROM_BUSINESS_NAME, '456 Business Ave', FROM_EMAIL],
   },
   itemsTable: {
     label: 'Items table',
@@ -154,8 +182,8 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'qr',
-    defaultBox: { x: 32, y: 1010, width: 140, height: 70 },
-    render: () => ({ label: 'Pay online', link: 'pay.example.com/inv-0001' }),
+    defaultBox: { x: 650, y: 930, width: 110, height: 130 },
+    render: () => ({ label: 'Pay online', link: PAY_LINK, qrPath: QR_PATH, qrSize: QR_SIZE }),
   },
   signature: {
     label: 'Signature',
@@ -173,6 +201,22 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 347, y: 1085, width: 100, height: 24 },
     render: () => ({ kind: 'image', placeholder: 'wordmark' }),
   },
+  // Fixed page chrome, not an optional element: `hidden` keeps it out of the
+  // elements library panel entirely, `locked` (propagated onto the created
+  // item below) is the one mechanism CanvasItem/deleteItems/duplicateItems
+  // already respect for "can't be selected, moved, resized, or duplicated".
+  // Sources its business identity from the same FROM_* constants `from`
+  // itself renders from, so the two can never drift apart.
+  footer: {
+    label: 'Footer',
+    required: false,
+    defaultOn: true,
+    hidden: true,
+    locked: true,
+    variant: 'footer',
+    defaultBox: { x: 0, y: 1085, width: 794, height: 38 },
+    render: () => ({ businessName: FROM_BUSINESS_NAME, email: FROM_EMAIL }),
+  },
 };
 
 export const createContentItem = (type) => {
@@ -189,5 +233,6 @@ export const createContentItem = (type) => {
     naturalWidth: width,
     naturalHeight: height,
     rotation: 0,
+    locked: !!def.locked,
   };
 };

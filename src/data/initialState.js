@@ -19,5 +19,9 @@ export const initialTemplateState = {
   items: buildInitialItems(),
   // shape ids currently grouped, keyed by groupId -> [itemId, ...]
   groups: {},
-  page: { width: 794, height: 1123 }, // ~A4 at 96dpi, used for rail detection
+  // ~A4 at 96dpi, used for rail detection + the boundary clamp. backgroundColor
+  // is a per-template value (not the global --page-bg token) so different
+  // templates can have different page colors; this default matches the
+  // token's current cream tone so existing templates don't visually change.
+  page: { width: 794, height: 1123, backgroundColor: '#FAF9F6' },
 };

@@ -15,6 +15,9 @@ export function EditorProvider({ children }) {
   // whose title/body sub-part is being styled: { id, key: 'title'|'body' }.
   const [selection, setSelection] = useState({ ids: [], part: null });
   const [saveState, setSaveState] = useState({ status: 'idle', issues: [] }); // idle | saved | blocked
+  // Transient, not history: which page edge(s) an in-progress drag/resize
+  // is currently touching, for the edge-contact highlight. null when idle.
+  const [edgeHighlight, setEdgeHighlight] = useState(null);
 
   const template = history.present;
 
@@ -174,6 +177,15 @@ export function EditorProvider({ children }) {
     [template, commit]
   );
 
+  // Page background is a per-template value (not the global --page-bg
+  // token), so different templates can each have their own page color.
+  const updatePageBackground = useCallback(
+    (color) => {
+      commit({ ...template, page: { ...template.page, backgroundColor: color } });
+    },
+    [template, commit]
+  );
+
   // rails: recompute which shapes currently act as edge rails, and by how
   // much they'd inset the page's safe area on each side (used by
   // validation only now — there's no flow container left to actually pad).
@@ -206,6 +218,8 @@ export function EditorProvider({ children }) {
     redo,
     selection,
     setSelection,
+    edgeHighlight,
+    setEdgeHighlight,
     toggleContentItem,
     updateItem,
     updateItems,
@@ -216,6 +230,7 @@ export function EditorProvider({ children }) {
     addShape,
     groupItems,
     ungroupItems,
+    updatePageBackground,
   };
 
   return <EditorStateContext.Provider value={value}>{children}</EditorStateContext.Provider>;

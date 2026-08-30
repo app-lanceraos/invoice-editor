@@ -12,7 +12,7 @@ export default function ElementLibraryPanel() {
   return (
     <>
       <div className="panel__section-title">Invoice elements</div>
-      {Object.entries(ELEMENT_TYPES).map(([type, def]) => {
+      {Object.entries(ELEMENT_TYPES).filter(([, def]) => !def.hidden).map(([type, def]) => {
         const isOn = template.items.some((i) => i.kind === 'content' && i.type === type);
         const isLocked = def.required;
         return (

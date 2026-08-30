@@ -69,6 +69,20 @@ function ContentProperties({ items }) {
   );
 }
 
+function PageProperties() {
+  const { template, updatePageBackground } = useEditor();
+
+  return (
+    <>
+      <div className="panel__section-title">Page</div>
+      <div className="prop-row">
+        <label>Background</label>
+        <input type="color" value={template.page.backgroundColor} onChange={(e) => updatePageBackground(e.target.value)} />
+      </div>
+    </>
+  );
+}
+
 function ShapeProperties({ items }) {
   const { updateItems } = useEditor();
   const ids = items.map((i) => i.id);
@@ -135,9 +149,12 @@ export default function PropertiesPanel() {
         </>
       )}
       {selectedItems.length === 0 && (
-        <p className="empty-hint">
-          Select a content element or shape on the canvas to edit its style here.
-        </p>
+        <>
+          <PageProperties />
+          <p className="empty-hint" style={{ marginTop: 14 }}>
+            Select a content element or shape on the canvas to edit its style here.
+          </p>
+        </>
       )}
 
       {saveState.status !== 'idle' && (
