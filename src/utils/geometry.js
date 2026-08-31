@@ -1,18 +1,33 @@
 import { PAGE_PADDING } from '../data/initialState';
 
+// The footer is fixed/locked (never moved or resized by the user), so its
+// top edge — where every other item's reserved bottom space begins — is
+// just its own stored `y`, no DOM measurement needed. Falls back to the
+// page's own bottom (i.e. no additional restriction) if a template were
+// ever missing it.
+export function getFooterTop(items, page) {
+  const footer = items.find((i) => i.type === 'footer');
+  return footer ? footer.y : page.height;
+}
+
 // The valid position/size envelope for an item: shapes may sit flush
-// against the true page edge (0/page.width/page.height — required for the
-// rail behavior), content items must stay at least PAGE_PADDING away from
-// every edge.
-export function getItemBounds(item, page) {
+// against the true page edge (0/page.width — required for the rail
+// behavior) and content items must stay at least PAGE_PADDING away from
+// every edge — EXCEPT at the bottom, where the footer's own top edge
+// applies instead whenever it's the more restrictive of the two. Every
+// kind is excluded from the footer's strip, including shapes: a decorative
+// rail is allowed flush against the true page edge everywhere else, but
+// not through the footer specifically.
+export function getItemBounds(item, page, footerTop = page.height) {
+  const bottomLimit = Math.min(page.height, footerTop);
   if (item.kind === 'shape') {
-    return { minX: 0, maxX: page.width, minY: 0, maxY: page.height };
+    return { minX: 0, maxX: page.width, minY: 0, maxY: bottomLimit };
   }
   return {
     minX: PAGE_PADDING,
     maxX: page.width - PAGE_PADDING,
     minY: PAGE_PADDING,
-    maxY: page.height - PAGE_PADDING,
+    maxY: Math.min(page.height - PAGE_PADDING, bottomLimit),
   };
 }
 

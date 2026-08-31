@@ -1,9 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useLayoutEffect } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
 import { fontFamilyCSS } from '../../data/fonts';
-import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, computeGuides, rotateVector } from '../../utils/geometry';
+import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, getFooterTop, computeGuides, rotateVector } from '../../utils/geometry';
 
 // Table columns default to equal shares of the table's width; stored as
 // percentages (summing to 100) rather than px, so they stay meaningful
@@ -13,8 +13,49 @@ function defaultColumnWidths(count) {
 }
 
 const MIN_COLUMN_PCT = 6;
+const NOOP = () => {};
 
-function partInlineStyle(item, part, fallbackColor, fallbackWeight) {
+// Variants whose natural size is text-dependent (font family/weight/size,
+// which lines are hidden, and — for `block`, which wraps — the box's own
+// current width) and therefore can't be a fixed catalog guess: it's
+// measured live from an offscreen, unscaled clone of the item's own actual
+// content instead. `image`/`divider`/`qr`/`table`/`footer` are deliberately
+// excluded — each already has its own fixed or bespoke natural-size story
+// (an intrinsic asset size, a fixed grid, a page-width bar, hand-managed
+// column widths) that a text measurement would only fight with.
+const MEASURED_VARIANTS = new Set(['text', 'label-value', 'block', 'row', 'row-strong', 'note']);
+
+// Renders an invisible, unscaled clone of the item's own content next to the
+// real one and reads its true rendered size via ResizeObserver — the same
+// content the visible `.item__scale` wrapper stretches, so whatever this
+// measures is exactly what the scale transform should be dividing by.
+// Deliberately NOT persisted to `item.naturalWidth/Height` (that would turn
+// every font/content change into a spurious extra undo step); it's kept in
+// local, non-history component state, same as an in-progress drag's `live`.
+function useMeasuredNatural(active) {
+  const nodeRef = useRef(null);
+  const [size, setSize] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!active) return undefined;
+    const node = nodeRef.current;
+    if (!node) return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setSize((prev) =>
+        prev && Math.abs(prev.width - width) < 0.5 && Math.abs(prev.height - height) < 0.5
+          ? prev
+          : { width, height }
+      );
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [active]);
+
+  return { nodeRef, size: active ? size : null };
+}
+
+function partInlineStyle(item, part, fallbackColor, fallbackWeight, fallbackSize) {
   const s = (item && item[part]) || {};
   return {
     color: s.textColor || fallbackColor,
@@ -24,6 +65,12 @@ function partInlineStyle(item, part, fallbackColor, fallbackWeight) {
     borderStyle: s.borderWidth ? 'solid' : undefined,
     fontFamily: fontFamilyCSS(s.fontFamily),
     fontWeight: s.fontWeight || fallbackWeight,
+    fontSize: s.fontSize || fallbackSize,
+    // Left unset (rather than defaulted) when the part has no override —
+    // the container it sits in (`.item__block`) carries the whole-item
+    // default via ordinary CSS inheritance, so a part only needs its own
+    // value when it's deliberately different from that default.
+    textAlign: s.contentAlign || undefined,
   };
 }
 
@@ -42,19 +89,28 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
   // itself and still have the user's explicit choice win outright — an
   // inline style set here always beats both inheritance and any CSS rule,
   // default browser styling included.
-  const fontStyle = (fallbackWeight) => ({
+  const fontStyle = (fallbackWeight, fallbackSize) => ({
     fontFamily: fontFamilyCSS(item.fontFamily),
     fontWeight: item.fontWeight || fallbackWeight,
+    fontSize: item.fontSize || fallbackSize,
   });
+  // How content sits inside its own box — independent of the align-to-page
+  // buttons (those move the box itself; this only affects the content
+  // painted inside it). Not offered for every variant: `row`/`row-strong`
+  // already spread label/value via `justify-content: space-between`, and
+  // `table` cells have their own per-column left/right rule — a generic
+  // align control would just fight both.
+  const alignStyle = () => ({ textAlign: item.contentAlign || 'left' });
 
   switch (def.variant) {
     case 'text':
-      return <div className="item__text" style={fontStyle()}>{data}</div>;
+      return <div className="item__text" style={{ ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
     case 'label-value': {
-      const labelStyle = partInlineStyle(item, 'label', undefined);
-      const valueStyle = partInlineStyle(item, 'value', undefined);
+      const labelStyle = partInlineStyle(item, 'label', undefined, undefined, 10);
+      const valueStyle = partInlineStyle(item, 'value', undefined, undefined, 10);
+      const justify = item.contentAlign === 'center' ? 'center' : item.contentAlign === 'right' ? 'flex-end' : 'flex-start';
       return (
-        <div className="item__label-value">
+        <div className="item__label-value" style={{ justifyContent: justify }}>
           <span
             className={`item__label${isPartSelected('label') ? ' item__label--selected' : ''}`}
             style={labelStyle}
@@ -73,11 +129,15 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       );
     }
     case 'block': {
-      const titleStyle = partInlineStyle(item, 'title', '#a2896b');
+      // The whole item's chosen alignment is the container's own
+      // `text-align` — every line inherits it unless that specific part
+      // has its own override (partInlineStyle only sets `textAlign` when
+      // the part actually has one, so inheritance passes through cleanly).
+      const titleStyle = partInlineStyle(item, 'title', '#a2896b', undefined, 8);
       const hidden = item.hiddenLines || [];
       const visibleLines = data.lines.filter((line) => !hidden.includes(line.key));
       return (
-        <div className="item__block">
+        <div className="item__block" style={alignStyle()}>
           <div
             className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : ''}`}
             style={titleStyle}
@@ -88,7 +148,7 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
           {visibleLines.map((line) => (
             <div
               className={`item__block-line${isPartSelected(line.key) ? ' item__block-line--selected' : ''}`}
-              style={partInlineStyle(item, line.key, '#55524a')}
+              style={partInlineStyle(item, line.key, '#55524a', undefined, 9)}
               key={line.key}
               onClick={(e) => onSelectPart(e, line.key)}
             >
@@ -100,48 +160,32 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
     }
     case 'row':
       return (
-        <div className="item__row" style={fontStyle()}>
+        <div className="item__row" style={fontStyle(undefined, 9)}>
           <span>{data[0]}</span><span>{data[1]}</span>
         </div>
       );
     case 'row-strong':
       return (
-        <div className="item__row item__row--strong" style={fontStyle(700)}>
+        <div className="item__row item__row--strong" style={fontStyle(700, 11)}>
           <span>{data[0]}</span><span>{data[1]}</span>
         </div>
       );
     case 'note':
-      return <div className="item__text" style={{ opacity: 0.6, ...fontStyle() }}>{data}</div>;
+      return <div className="item__text" style={{ opacity: 0.6, ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
     case 'image':
       // No border/background of its own — the outer frame (CanvasItem)
       // already renders the item's border/background, and this placeholder
-      // is that same box's content, not a second nested one. The SVG art
-      // below uses currentColor for its "ink", so it inherits the frame's
-      // own `color` (item.textColor) exactly the way the old plain-text
-      // placeholder did — the Text color control keeps working, it's just
-      // recoloring an illustrative mark instead of a word now.
+      // is that same box's content, not a second nested one. Real assets
+      // (public/favicon.svg, public/signature.png) — not illustrative
+      // currentColor art — so the frame's Text color control is hidden for
+      // these two types in the properties panel (PropertiesPanel.jsx);
+      // `object-fit: contain` keeps each asset's own aspect ratio intact
+      // through a non-uniform resize instead of stretching it.
       if (item.type === 'logo') {
-        return (
-          <svg viewBox="0 0 100 100" className="item__image-placeholder" preserveAspectRatio="xMidYMid meet">
-            <circle cx="50" cy="50" r="46" fill="currentColor" fillOpacity="0.16" />
-            <path d="M50 20 L76 68 L24 68 Z" fill="currentColor" fillOpacity="0.75" />
-          </svg>
-        );
+        return <img src="/favicon.svg" alt="Logo" className="item__image-placeholder" style={{ objectFit: 'contain' }} />;
       }
       if (item.type === 'signatureImage') {
-        return (
-          <svg viewBox="0 0 200 60" className="item__image-placeholder" preserveAspectRatio="xMidYMid meet">
-            <path
-              d="M10,40 C20,10 30,55 45,30 C55,12 60,45 75,35 C90,25 95,45 110,30 C120,18 130,40 145,28 C155,20 165,35 190,20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.8"
-            />
-          </svg>
-        );
+        return <img src="/signature.png" alt="Signature" className="item__image-placeholder" style={{ objectFit: 'contain' }} />;
       }
       // Any other 'image'-variant type (none currently defined) falls back
       // to the plain text-label placeholder.
@@ -152,7 +196,7 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       // way as every other item, so it needs no dedicated control.
       return <div className="item__divider" style={{ background: item.bgColor || '#262420', borderRadius: item.naturalHeight / 2 }} />;
     case 'qr': {
-      const titleStyle = partInlineStyle(item, 'title', '#a2896b');
+      const titleStyle = partInlineStyle(item, 'title', '#a2896b', undefined, 8);
       // The QR pattern itself stays fixed black-on-white regardless of the
       // body's style overrides — a real QR needs strong, reliable contrast
       // to stay scannable, so only its surrounding box (background/border)
@@ -200,14 +244,21 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
           style={{
             color: item.textColor || undefined,
             borderTopColor: item.dividerColor || undefined,
-            ...fontStyle(),
+            ...fontStyle(undefined, 7),
           }}
         >
           <div className="item__footer-left">
             <div>{data.businessName}</div>
             <div>{data.email}</div>
           </div>
-          <div className="item__footer-right">
+          {/* The wordmark is a fixed logotype (an SVG mark, not text) — its
+              fill picks up the footer's own textColor through the same
+              `--wordmark` custom property Brand.jsx already reads, same
+              currentColor-recoloring mechanism the Logo/Signature
+              placeholder art used before those became real assets. Font
+              family/weight stay inapplicable here: fontStyle() cascading
+              onto this element has no effect on an SVG's own paths. */}
+          <div className="item__footer-right" style={{ '--wordmark': item.textColor || '#a09a89' }}>
             <span>Generated by</span>
             <WordmarkSVG width={56} height={8.4} />
           </div>
@@ -234,6 +285,7 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
                     width: `${widths[j]}%`,
                     fontFamily: fontFamilyCSS(item.fontFamily),
                     fontWeight: item.headerFontWeight || item.fontWeight || 700,
+                    fontSize: item.headerFontSize || 7,
                     background: item.headerBg,
                     color: item.headerTextColor,
                   }}
@@ -251,7 +303,7 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
                     key={j}
                     style={{
                       width: `${widths[j]}%`,
-                      ...fontStyle(),
+                      ...fontStyle(undefined, 8.5),
                       borderBottom:
                         item.rowBorderWidth !== undefined
                           ? `${item.rowBorderWidth}px solid ${item.rowBorderColor || '#e5e1d6'}`
@@ -306,13 +358,20 @@ const RotateIcon = (
 // `updateItem` commit on mouseup. Shared by shapes and content items alike;
 // only the rendered body (ShapeBody vs ContentBody) and a few style fields
 // differ by `item.kind`.
-export default function CanvasItem({ item }) {
+// `readOnly` (set by PreviewModal, via EditorCanvas/CanvasLayer) is what
+// keeps Preview a clean read-only render of the SAME shared EditorContext
+// rather than a separate tree: with it true, this item ignores whatever
+// `selection` currently holds (an item selected in the live editor behind
+// the modal must not show its outline/handles here) and never wires up the
+// move/resize/rotate/part-click handlers that would mutate the live
+// template out from under the editor.
+export default function CanvasItem({ item, readOnly = false }) {
   const { template, selection, setSelection, updateItem, setEdgeHighlight, setGuides } = useEditor();
   const def = item.kind === 'content' ? ELEMENT_TYPES[item.type] : null;
 
-  const isSelected = selection.ids.includes(item.id);
+  const isSelected = !readOnly && selection.ids.includes(item.id);
   const isPartSelected = (part) =>
-    !!selection.part && selection.part.id === item.id && selection.part.key === part;
+    !readOnly && !!selection.part && selection.part.id === item.id && selection.part.key === part;
   const isWholeSelected = isSelected && !(selection.part && selection.part.id === item.id);
 
   const [live, setLive] = useState(null); // { x, y, width, height, rotation } while dragging
@@ -321,8 +380,16 @@ export default function CanvasItem({ item }) {
 
   const current = { ...item, ...(live || {}) };
   const rotation = current.rotation || 0;
-  const scaleX = current.width / item.naturalWidth;
-  const scaleY = current.height / item.naturalHeight;
+
+  const isMeasured = !!def && MEASURED_VARIANTS.has(def.variant);
+  const { nodeRef: measureRef, size: measuredSize } = useMeasuredNatural(isMeasured);
+  // Falls back to the catalog's seed size until the first measurement
+  // resolves (avoids a NaN/zero scale flash), and forever for variants
+  // that don't measure at all.
+  const naturalWidth = isMeasured && measuredSize ? measuredSize.width : item.naturalWidth;
+  const naturalHeight = isMeasured && measuredSize ? measuredSize.height : item.naturalHeight;
+  const scaleX = naturalWidth > 0 ? current.width / naturalWidth : 1;
+  const scaleY = naturalHeight > 0 ? current.height / naturalHeight : 1;
 
   const beginMove = (e) => {
     e.stopPropagation();
@@ -347,7 +414,7 @@ export default function CanvasItem({ item }) {
 
     const start = { x: e.clientX, y: e.clientY, origX: item.x, origY: item.y };
     const others = template.items.filter((i) => i.id !== item.id);
-    const bounds = getItemBounds(item, template.page);
+    const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     // This item's own boundary (true page edge for a shape, PAGE_PADDING
     // inset for content) joins every other item's edges as snap candidates
     // — same ~4px tolerance, so a drag lands flush against it just as
@@ -385,7 +452,7 @@ export default function CanvasItem({ item }) {
     e.preventDefault();
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
-    const bounds = getItemBounds(item, template.page);
+    const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     const others = template.items.filter((i) => i.id !== item.id);
     // Same candidate set a move drag snaps against: every other item's
     // left/center/right (or top/center/bottom), plus this item's own page
@@ -538,21 +605,59 @@ export default function CanvasItem({ item }) {
         width: current.width,
         height: current.height,
         transform: rotation ? `rotate(${rotation}deg)` : undefined,
-        cursor: item.locked ? 'default' : 'grab',
+        cursor: readOnly ? 'default' : item.locked ? 'default' : 'grab',
         ...frameStyle,
       }}
-      onMouseDown={beginMove}
+      onMouseDown={readOnly ? undefined : beginMove}
     >
       <div
         className="item__scale"
-        style={{ width: item.naturalWidth, height: item.naturalHeight, transform: `scale(${scaleX}, ${scaleY})` }}
+        style={{
+          width: naturalWidth,
+          height: naturalHeight,
+          transform: `scale(${scaleX}, ${scaleY})`,
+          // Text content is measured, not guessed — if it's ever briefly
+          // wrong (mid re-measure, or a not-yet-supported font), this makes
+          // it degrade to spilling past its box instead of being silently
+          // cropped by the CSS class's default `overflow: hidden`.
+          overflow: isMeasured ? 'visible' : undefined,
+        }}
       >
         {item.kind === 'shape' ? (
           <ShapeBody item={item} />
         ) : (
-          <ContentBody item={current} isPartSelected={isPartSelected} onSelectPart={handlePartClick} />
+          <ContentBody item={current} isPartSelected={isPartSelected} onSelectPart={readOnly ? NOOP : handlePartClick} />
         )}
       </div>
+
+      {isMeasured && (
+        <div
+          ref={measureRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            visibility: 'hidden',
+            pointerEvents: 'none',
+            zIndex: -1,
+            // `block` wraps its lines at the box's own width, so its true
+            // natural height depends on that width. `row`/`row-strong`/
+            // `note` use `justify-content: space-between` across a
+            // deliberately-wide column — shrink-to-fit would collapse
+            // that gap to zero (nothing left to distribute) and the scale
+            // transform would then just stretch a zero gap into a still-
+            // zero one, running label and value together. All three mirror
+            // the item's current width so only height (the thing that was
+            // actually guessed wrong) gets corrected; width stays pinned at
+            // scale 1. `text`/`label-value` are single short labels that
+            // shrink-to-fit their own content, so they're left unconstrained.
+            ...(['block', 'row', 'row-strong', 'note'].includes(def.variant) ? { width: current.width } : {}),
+          }}
+        >
+          <ContentBody item={current} isPartSelected={() => false} onSelectPart={() => {}} />
+        </div>
+      )}
 
       {isWholeSelected && !item.locked && def?.variant === 'table' && (() => {
         const widths = current.columnWidths || defaultColumnWidths(def.render().columns.length);

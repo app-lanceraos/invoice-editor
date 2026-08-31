@@ -8,7 +8,7 @@ import CanvasItem from './CanvasItem';
 // the content group after, so content always sits visually above shapes
 // regardless of where either sits in the underlying flat `template.items`
 // array (which only orders items relative to their own kind-group).
-export default function CanvasLayer() {
+export default function CanvasLayer({ readOnly = false }) {
   const { template, selection, setSelection, guides } = useEditor();
   const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas
 
@@ -58,20 +58,20 @@ export default function CanvasLayer() {
   // Live rail preview: while a selected shape is near an edge, show the
   // dashed safe-area indicator (approximated from committed shape state —
   // good enough since rail recognition only matters once released).
-  const rails = shapes
+  const rails = !readOnly && shapes
     .map((shape) => ({ shape, rail: detectRail(shape, template.page) }))
     .filter((r) => r.rail && selection.ids.includes(r.shape.id));
 
   return (
-    <div className="canvas-layer" onMouseDown={startMarquee}>
+    <div className="canvas-layer" onMouseDown={readOnly ? undefined : startMarquee}>
       {shapes.map((item) => (
-        <CanvasItem key={item.id} item={item} />
+        <CanvasItem key={item.id} item={item} readOnly={readOnly} />
       ))}
       {contentItems.map((item) => (
-        <CanvasItem key={item.id} item={item} />
+        <CanvasItem key={item.id} item={item} readOnly={readOnly} />
       ))}
 
-      {rails.map(({ shape, rail }) => (
+      {!readOnly && rails.map(({ shape, rail }) => (
         <div
           key={shape.id}
           className="rail-overlay"
@@ -84,7 +84,7 @@ export default function CanvasLayer() {
         />
       ))}
 
-      {marquee && (
+      {!readOnly && marquee && (
         <div
           className="rail-overlay"
           style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, borderStyle: 'solid' }}
@@ -93,14 +93,17 @@ export default function CanvasLayer() {
 
       {/* Smart guides: transient, only while a drag/resize gesture is
           active (see CanvasItem's computeGuides use) — full-span alignment
-          lines plus live distance labels to nearby items. */}
-      {guides?.vertical.map((x) => (
+          lines plus live distance labels to nearby items. Explicitly gated
+          on readOnly too, not just left to "guides is null outside a
+          drag" — Preview must never show them even if a gesture somehow
+          left stale guide state behind in the shared context. */}
+      {!readOnly && guides?.vertical.map((x) => (
         <div key={`gv-${x}`} className="align-guide align-guide--vertical" style={{ left: x }} />
       ))}
-      {guides?.horizontal.map((y) => (
+      {!readOnly && guides?.horizontal.map((y) => (
         <div key={`gh-${y}`} className="align-guide align-guide--horizontal" style={{ top: y }} />
       ))}
-      {guides?.labels.map((l, i) => (
+      {!readOnly && guides?.labels.map((l, i) => (
         <div key={i} className="align-guide-label" style={{ left: l.x, top: l.y }}>{l.text}</div>
       ))}
     </div>

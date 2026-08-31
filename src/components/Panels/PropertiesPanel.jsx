@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
-import { getItemBounds } from '../../utils/geometry';
+import { getItemBounds, getFooterTop } from '../../utils/geometry';
 import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fonts';
 
 // Variants whose text is split into independently-styleable parts (see
@@ -10,11 +10,22 @@ import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fo
 //   label-value:  'label' + 'value' (Due Date / Issue Date)
 const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
 
-// Font-family + font-weight controls, shared by whole-item and per-part
-// property panels alike. `style` is whatever flat style object (an item,
-// or an item[part]) already holds textColor/bgColor/etc; `onChange` gets
-// just the font patch to merge in the same way those other controls do.
-function FontControls({ style, onChange }) {
+// Variants where "how content sits inside its own box" is a meaningful,
+// independent choice — distinct from AlignmentControls below, which moves
+// the box itself. Left out deliberately: `row`/`row-strong` already spread
+// label/value with `justify-content: space-between`, and `table` cells
+// already have their own per-column left/right rule — an align control on
+// either would just fight the layout that's already there.
+const ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value']);
+
+// Font-family + font-weight + font-size controls, shared by whole-item and
+// per-part property panels alike. `style` is whatever flat style object (an
+// item, or an item[part]) already holds textColor/bgColor/etc; `onChange`
+// gets just the font patch to merge in the same way those other controls
+// do. `defaultSize` is that variant/part's own baked-in CSS size (see the
+// matching fallback passed to fontStyle()/partInlineStyle() in
+// CanvasItem.jsx) — shown until the user picks an explicit override.
+function FontControls({ style, onChange, defaultSize }) {
   const currentFamily = fontFamilyById(style.fontFamily);
   const weights = currentFamily.weights;
   const currentWeight = style.fontWeight && weights.includes(style.fontWeight) ? style.fontWeight : weights[0];
@@ -39,7 +50,42 @@ function FontControls({ style, onChange }) {
           {weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
         </select>
       </div>
+      <div className="prop-row">
+        <label>Size</label>
+        <input
+          type="number"
+          min="6"
+          max="72"
+          value={style.fontSize || defaultSize}
+          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
+        />
+      </div>
     </>
+  );
+}
+
+// Left/center/right — how content sits inside its own box, applied to the
+// WHOLE item (not per-part; block's per-line override, when wanted, is set
+// from PartProperties instead). Shown independent of hideTextControls,
+// since it's meaningful even for variants (block, label-value) whose text
+// itself is only editable through its parts.
+function ContentAlignControl({ value, onChange }) {
+  return (
+    <div className="prop-row">
+      <label>Align</label>
+      <div className="align-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {['left', 'center', 'right'].map((v) => (
+          <button
+            key={v}
+            className="tbtn"
+            style={{ fontWeight: (value || 'left') === v ? 700 : 400 }}
+            onClick={() => onChange(v)}
+          >
+            {v[0].toUpperCase() + v.slice(1)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -59,6 +105,16 @@ function partMeta(def, part) {
   return { label: 'Body', deletable: false }; // qr's image half
 }
 
+// Part-level font-size fallback: label-value's two spans share its 10px
+// container size, title uses the block-title 8px default, everything else
+// is a block body line at 9px — mirrors the fallbacks CanvasItem.jsx's
+// ContentBody passes to partInlineStyle() for the same parts.
+function partDefaultFontSize(def, part) {
+  if (def.variant === 'label-value') return 10;
+  if (part === 'title') return 8;
+  return 9;
+}
+
 function PartProperties({ item, part }) {
   const { updateItemPart, deleteBlockLine } = useEditor();
   const def = ELEMENT_TYPES[item.type];
@@ -75,7 +131,17 @@ function PartProperties({ item, part }) {
         <label>Text color</label>
         <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
       </div>
-      <FontControls style={partStyle} onChange={(patch) => updateItemPart(item.id, part, patch)} />
+      <FontControls
+        style={partStyle}
+        onChange={(patch) => updateItemPart(item.id, part, patch)}
+        defaultSize={partDefaultFontSize(def, part)}
+      />
+      {def.variant === 'block' && (
+        <ContentAlignControl
+          value={partStyle.contentAlign}
+          onChange={(v) => updateItemPart(item.id, part, { contentAlign: v })}
+        />
+      )}
       <div className="prop-row">
         <label>Background</label>
         <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
@@ -100,6 +166,18 @@ function PartProperties({ item, part }) {
   );
 }
 
+// Whole-item font-size fallback per variant — mirrors the fallbacks
+// CanvasItem.jsx's ContentBody passes to fontStyle() for that same variant.
+function variantDefaultFontSize(variant) {
+  switch (variant) {
+    case 'row-strong': return 11;
+    case 'row': return 9;
+    case 'table': return 8.5;
+    case 'footer': return 7;
+    default: return 10; // text, note
+  }
+}
+
 function ContentProperties({ items }) {
   const { updateItems } = useEditor();
   const ids = items.map((i) => i.id);
@@ -110,9 +188,14 @@ function ContentProperties({ items }) {
   // would even apply to. Every other variant is a single flat text run,
   // where the whole-item controls ARE the text controls — except
   // 'divider', which has no text at all (its color is the Background
-  // control below, matching how the shape-line's color works).
+  // control below, matching how the shape-line's color works), and
+  // 'image', whose Logo/Signature types now render a real asset
+  // (public/favicon.svg, public/signature.png) rather than a
+  // currentColor-recolorable mark — text color and font no longer apply
+  // to either. Background/border stay available below regardless.
   const firstVariant = ELEMENT_TYPES[first.type].variant;
-  const hideTextControls = items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider');
+  const hideTextControls =
+    items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider' || firstVariant === 'image');
 
   return (
     <>
@@ -125,8 +208,15 @@ function ContentProperties({ items }) {
             <label>Text color</label>
             <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
           </div>
-          <FontControls style={first} onChange={(patch) => updateItems(ids, () => patch)} />
+          <FontControls
+            style={first}
+            onChange={(patch) => updateItems(ids, () => patch)}
+            defaultSize={variantDefaultFontSize(firstVariant)}
+          />
         </>
+      )}
+      {ALIGNABLE_VARIANTS.has(firstVariant) && (
+        <ContentAlignControl value={first.contentAlign} onChange={(v) => updateItems(ids, () => ({ contentAlign: v }))} />
       )}
       <div className="prop-row">
         <label>Background</label>
@@ -151,7 +241,7 @@ function ContentProperties({ items }) {
 // position the boundary clamp would immediately have to correct.
 function AlignmentControls({ item }) {
   const { template, updateItem } = useEditor();
-  const bounds = getItemBounds(item, template.page);
+  const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
 
   const alignX = (mode) => {
     const x =
@@ -206,8 +296,16 @@ function TableProperties({ item }) {
           {headerWeights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
         </select>
       </div>
+      <div className="prop-row">
+        <label>Size</label>
+        <input type="number" min="6" max="72" value={item.headerFontSize || 7} onChange={(e) => patch({ headerFontSize: Number(e.target.value) })} />
+      </div>
 
       <div className="panel__section-title">Table — Body rows</div>
+      <div className="prop-row">
+        <label>Body font size</label>
+        <input type="number" min="6" max="72" value={item.fontSize || 8.5} onChange={(e) => patch({ fontSize: Number(e.target.value) })} />
+      </div>
       <div className="prop-row">
         <label>Row border color</label>
         <input type="color" value={item.rowBorderColor || '#e5e1d6'} onChange={(e) => patch({ rowBorderColor: e.target.value })} />

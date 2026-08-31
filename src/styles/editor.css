@@ -367,6 +367,7 @@ body {
 
 .item__resize-handle {
   position: absolute;
+  z-index: 2;
   width: 9px; height: 9px;
   background: white;
   border: 1.5px solid var(--purple-500);
@@ -379,6 +380,7 @@ body {
    adjacent columns only, the table's own total width/height untouched. */
 .item__col-divider {
   position: absolute;
+  z-index: 2;
   top: 0;
   bottom: 0;
   width: 7px;
@@ -400,6 +402,7 @@ body {
 
 .item__rotate-handle {
   position: absolute;
+  z-index: 2;
   width: 18px; height: 18px;
   display: flex;
   align-items: center;

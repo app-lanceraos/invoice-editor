@@ -57,7 +57,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: true,
     variant: 'text',
-    defaultBox: { x: 90, y: 24, width: 60, height: 10 },
+    defaultBox: { x: 90, y: 24, width: 60, height: 16 },
     render: () => 'Invoice',
   },
   businessName: {
@@ -108,7 +108,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 32, y: 100, width: 170, height: 95 },
+    defaultBox: { x: 32, y: 100, width: 170, height: 56 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'Bill To' },
       lines: [
@@ -124,7 +124,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 222, y: 100, width: 170, height: 95 },
+    defaultBox: { x: 222, y: 100, width: 170, height: 46 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'From' },
       lines: [
@@ -155,7 +155,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'row',
-    defaultBox: { x: 542, y: 390, width: 220, height: 22 },
+    defaultBox: { x: 542, y: 390, width: 220, height: 14 },
     render: () => ['Subtotal', '$2,930.00'],
   },
   tax: {
@@ -163,7 +163,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'row',
-    defaultBox: { x: 542, y: 416, width: 220, height: 22 },
+    defaultBox: { x: 542, y: 416, width: 220, height: 14 },
     render: () => ['Tax (5%)', '$146.50'],
   },
   discount: {
@@ -171,7 +171,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'row',
-    defaultBox: { x: 542, y: 442, width: 220, height: 22 },
+    defaultBox: { x: 542, y: 442, width: 220, height: 14 },
     render: () => ['Discount', '−$100.00'],
   },
   totalDue: {
@@ -179,7 +179,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'row-strong',
-    defaultBox: { x: 542, y: 468, width: 220, height: 26 },
+    defaultBox: { x: 542, y: 468, width: 220, height: 20 },
     render: () => ['Total due', '$2,976.50'],
   },
   currencyConversion: {
@@ -187,7 +187,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'note',
-    defaultBox: { x: 542, y: 498, width: 220, height: 18 },
+    defaultBox: { x: 542, y: 498, width: 220, height: 16 },
     render: () => '≈ PKR 826,000 at rate 278.0',
   },
   notes: {
@@ -195,7 +195,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 32, y: 920, width: 340, height: 50 },
+    defaultBox: { x: 32, y: 920, width: 340, height: 26 },
     // A single-line block: that one line is `required` (not individually
     // removable) since deleting it would just leave an empty card behind —
     // removing the whole thing is what the top-level toggle is for.
@@ -211,7 +211,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'block',
-    defaultBox: { x: 32, y: 980, width: 340, height: 45 },
+    defaultBox: { x: 32, y: 980, width: 340, height: 26 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'Terms' },
       lines: [
@@ -224,7 +224,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 400, y: 920, width: 340, height: 60 },
+    defaultBox: { x: 400, y: 920, width: 340, height: 36 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'Payment methods' },
       lines: [
@@ -269,7 +269,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'text',
-    defaultBox: { x: 32, y: 1070, width: 110, height: 12 },
+    defaultBox: { x: 32, y: 1070, width: 110, height: 16 },
     render: () => 'Authorised Signature',
   },
   // Fixed page chrome, not an optional element: `hidden` keeps it out of the

@@ -5,10 +5,11 @@ import EditorCanvas from './Canvas/EditorCanvas';
 
 // The preview is deliberately just the SAME canvas tree in a modal — no
 // separate render path, so there's no risk of preview drifting from what
-// the editor actually shows. It's read-only by convention: we simply don't
-// wire up click/drag intent messaging here beyond what EditorCanvas already
-// does, and interacting with it edits the same live template, which is fine
-// since closing the modal returns to the identical state.
+// the editor actually shows. `readOnly` on EditorCanvas is what keeps it a
+// clean read-only render of that shared state: without it, whatever's
+// selected in the editor behind this modal would show its outline/handles
+// here too (they share the same EditorContext, not a copy), and clicking a
+// part inside the preview would mutate the live template.
 export default function PreviewModal({ onClose }) {
   const { template } = useEditor();
   const containerRef = useRef(null);
@@ -50,7 +51,7 @@ export default function PreviewModal({ onClose }) {
         <button className="modal-btn" onClick={onClose}>Close preview ✕</button>
       </div>
       <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{ transform: 'scale(0.85)' }}>
-        <EditorCanvas />
+        <EditorCanvas readOnly />
       </div>
     </div>
   );
