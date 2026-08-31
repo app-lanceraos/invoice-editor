@@ -115,9 +115,42 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
     case 'image':
       // No border/background of its own — the outer frame (CanvasItem)
       // already renders the item's border/background, and this placeholder
-      // is that same box's content, not a second nested one. Text color
-      // inherits from the frame's own `color`.
+      // is that same box's content, not a second nested one. The SVG art
+      // below uses currentColor for its "ink", so it inherits the frame's
+      // own `color` (item.textColor) exactly the way the old plain-text
+      // placeholder did — the Text color control keeps working, it's just
+      // recoloring an illustrative mark instead of a word now.
+      if (item.type === 'logo') {
+        return (
+          <svg viewBox="0 0 100 100" className="item__image-placeholder" preserveAspectRatio="xMidYMid meet">
+            <circle cx="50" cy="50" r="46" fill="currentColor" fillOpacity="0.16" />
+            <path d="M50 20 L76 68 L24 68 Z" fill="currentColor" fillOpacity="0.75" />
+          </svg>
+        );
+      }
+      if (item.type === 'signatureImage') {
+        return (
+          <svg viewBox="0 0 200 60" className="item__image-placeholder" preserveAspectRatio="xMidYMid meet">
+            <path
+              d="M10,40 C20,10 30,55 45,30 C55,12 60,45 75,35 C90,25 95,45 110,30 C120,18 130,40 145,28 C155,20 165,35 190,20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.8"
+            />
+          </svg>
+        );
+      }
+      // Wordmark (and any future plain image placeholder) keeps the
+      // simple text-label placeholder.
       return <div className="item__image-placeholder">{data.placeholder}</div>;
+    case 'divider':
+      // A plain content-item version of the decorative line shape (color
+      // + thickness) — thickness is just its own height, resized the same
+      // way as every other item, so it needs no dedicated control.
+      return <div className="item__divider" style={{ background: item.bgColor || '#262420', borderRadius: item.naturalHeight / 2 }} />;
     case 'qr': {
       const titleStyle = partInlineStyle(item, 'title', '#a2896b');
       // The QR pattern itself stays fixed black-on-white regardless of the

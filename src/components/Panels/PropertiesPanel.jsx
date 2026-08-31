@@ -108,15 +108,18 @@ function ContentProperties({ items }) {
   // PartProperties instead) — the whole-item selection here only covers
   // their outer card (background/border), not a font a whole-item control
   // would even apply to. Every other variant is a single flat text run,
-  // where the whole-item controls ARE the text controls.
-  const hasSubParts = items.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[first.type].variant);
+  // where the whole-item controls ARE the text controls — except
+  // 'divider', which has no text at all (its color is the Background
+  // control below, matching how the shape-line's color works).
+  const firstVariant = ELEMENT_TYPES[first.type].variant;
+  const hideTextControls = items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider');
 
   return (
     <>
       <div className="panel__section-title">
         {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
       </div>
-      {!hasSubParts && (
+      {!hideTextControls && (
         <>
           <div className="prop-row">
             <label>Text color</label>

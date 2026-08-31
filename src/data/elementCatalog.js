@@ -49,6 +49,17 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 32, y: 32, width: 42, height: 42 },
     render: () => ({ kind: 'image', placeholder: 'logo' }),
   },
+  // The small eyebrow label the original Django template placed above the
+  // business name (`<div class="eyebrow">Invoice</div>`) — never made it
+  // into this catalog until now.
+  invoice: {
+    label: 'Invoice',
+    required: false,
+    defaultOn: true,
+    variant: 'text',
+    defaultBox: { x: 90, y: 24, width: 60, height: 10 },
+    render: () => 'Invoice',
+  },
   businessName: {
     label: 'Business name',
     required: true,
@@ -230,13 +241,36 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 650, y: 930, width: 110, height: 130 },
     render: () => ({ label: 'Pay online', link: PAY_LINK, qrPath: QR_PATH, qrSize: QR_SIZE }),
   },
-  signature: {
-    label: 'Signature',
+  // The original template composed a signature out of three stacked
+  // pieces (image, rule, caption) rather than one unit — kept as three
+  // fully independent top-level items here too, not a single item with
+  // nested parts (contrast with the block title/lines pattern): each has
+  // its own position/size/style/delete, no shared bounding box. Default
+  // positions just stack them in the same visual order as a courtesy for
+  // "turn all three on at once"; nothing ties them together afterward.
+  signatureImage: {
+    label: 'Signature image',
     required: false,
     defaultOn: false,
     variant: 'image',
-    defaultBox: { x: 652, y: 1020, width: 110, height: 50 },
+    defaultBox: { x: 32, y: 1028, width: 110, height: 35 },
     render: () => ({ kind: 'image', placeholder: 'signature' }),
+  },
+  signatureDivider: {
+    label: 'Signature divider',
+    required: false,
+    defaultOn: false,
+    variant: 'divider',
+    defaultBox: { x: 32, y: 1065, width: 110, height: 3 },
+    render: () => null,
+  },
+  signatureLabel: {
+    label: 'Signature label',
+    required: false,
+    defaultOn: false,
+    variant: 'text',
+    defaultBox: { x: 32, y: 1070, width: 110, height: 12 },
+    render: () => 'Authorised Signature',
   },
   wordmark: {
     label: 'Wordmark',
