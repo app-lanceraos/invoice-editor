@@ -12,10 +12,11 @@ const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
 
 // Variants where "how content sits inside its own box" is a meaningful,
 // independent choice — distinct from AlignmentControls below, which moves
-// the box itself. Left out deliberately: `row`/`row-strong` already spread
-// label/value with `justify-content: space-between`, and `table` cells
-// already have their own per-column left/right rule — an align control on
-// either would just fight the layout that's already there.
+// the box itself. `table` cells have their own per-column left/right rule,
+// so it's left out entirely; a `spread` label-value item (Subtotal etc.)
+// already spreads label/value with `justify-content: space-between`, so it
+// only loses the HORIZONTAL control (see showHorizontalAlign below) —
+// vertical position doesn't fight the spread, so it keeps that one.
 const ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value']);
 
 // Font-family + font-weight + font-size controls, shared by whole-item and
@@ -64,30 +65,37 @@ function FontControls({ style, onChange, defaultSize }) {
   );
 }
 
-// Left/center/right — how content sits inside its own box, applied to the
-// WHOLE item (not per-part; block's per-line override, when wanted, is set
-// from PartProperties instead). Shown independent of hideTextControls,
-// since it's meaningful even for variants (block, label-value) whose text
-// itself is only editable through its parts.
-function ContentAlignControl({ value, onChange }) {
+// Left/center/right (horizontal, text-align/justify-content) or top/
+// middle/bottom (vertical, Prompt 13 — the outer `.item__scale` flex
+// wrapper's justify-content, since text no longer scales to fill its box)
+// — how content sits inside its own box, applied to the WHOLE item (not
+// per-part; block's per-line horizontal override, when wanted, is set
+// from PartProperties instead — vertical has no per-part equivalent,
+// block's lines move together as one group). Shown independent of
+// hideTextControls, since it's meaningful even for variants (block,
+// label-value) whose text itself is only editable through its parts.
+function ContentAlignControl({ label, options, value, defaultValue, onChange }) {
   return (
     <div className="prop-row">
-      <label>Align</label>
-      <div className="align-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        {['left', 'center', 'right'].map((v) => (
+      <label>{label}</label>
+      <div className="align-grid" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+        {options.map(([v, text]) => (
           <button
             key={v}
             className="tbtn"
-            style={{ fontWeight: (value || 'left') === v ? 700 : 400 }}
+            style={{ fontWeight: (value || defaultValue) === v ? 700 : 400 }}
             onClick={() => onChange(v)}
           >
-            {v[0].toUpperCase() + v.slice(1)}
+            {text}
           </button>
         ))}
       </div>
     </div>
   );
 }
+
+const H_ALIGN_OPTIONS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right']];
+const V_ALIGN_OPTIONS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
 
 // Which label to show for a sub-part in its own panel, and whether it's
 // individually deletable — the only deletable parts are optional block
@@ -105,12 +113,13 @@ function partMeta(def, part) {
   return { label: 'Body', deletable: false }; // qr's image half
 }
 
-// Part-level font-size fallback: label-value's two spans share its 10px
-// container size, title uses the block-title 8px default, everything else
-// is a block body line at 9px — mirrors the fallbacks CanvasItem.jsx's
-// ContentBody passes to partInlineStyle() for the same parts.
+// Part-level font-size fallback: label-value's two spans share its
+// container size (11 for a `strong` item like Total due, 10 otherwise),
+// title uses the block-title 8px default, everything else is a block body
+// line at 9px — mirrors the fallbacks CanvasItem.jsx's ContentBody passes
+// to partInlineStyle() for the same parts.
 function partDefaultFontSize(def, part) {
-  if (def.variant === 'label-value') return 10;
+  if (def.variant === 'label-value') return def.strong ? 11 : 10;
   if (part === 'title') return 8;
   return 9;
 }
@@ -138,6 +147,9 @@ function PartProperties({ item, part }) {
       />
       {def.variant === 'block' && (
         <ContentAlignControl
+          label="Align"
+          options={H_ALIGN_OPTIONS}
+          defaultValue="left"
           value={partStyle.contentAlign}
           onChange={(v) => updateItemPart(item.id, part, { contentAlign: v })}
         />
@@ -168,14 +180,16 @@ function PartProperties({ item, part }) {
 
 // Whole-item font-size fallback per variant — mirrors the fallbacks
 // CanvasItem.jsx's ContentBody passes to fontStyle() for that same variant.
+// (`label-value` never reaches this: it's a SUB_PART_VARIANT, so
+// hideTextControls suppresses the whole-item font row entirely — table's
+// own dedicated panel below has a separate body-font-size control, but the
+// generic whole-item one here still applies too, since `table` isn't a
+// SUB_PART_VARIANT and ContentBody's td cells do read item.fontFamily/
+// fontWeight directly.)
 function variantDefaultFontSize(variant) {
-  switch (variant) {
-    case 'row-strong': return 11;
-    case 'row': return 9;
-    case 'table': return 8.5;
-    case 'footer': return 7;
-    default: return 10; // text, note
-  }
+  if (variant === 'table') return 8.5;
+  if (variant === 'footer') return 7;
+  return 10; // text, note
 }
 
 function ContentProperties({ items }) {
@@ -215,8 +229,28 @@ function ContentProperties({ items }) {
           />
         </>
       )}
+      {/* A `spread` label-value item (Subtotal etc.) already spreads
+          label/value across the row via justify-content — the horizontal
+          control would just fight that, so it's the one thing excluded
+          here that ALIGNABLE_VARIANTS alone wouldn't catch. Vertical
+          position doesn't conflict with the spread, so it's unaffected. */}
+      {ALIGNABLE_VARIANTS.has(firstVariant) && !ELEMENT_TYPES[first.type].spread && (
+        <ContentAlignControl
+          label="Align"
+          options={H_ALIGN_OPTIONS}
+          defaultValue="left"
+          value={first.contentAlign}
+          onChange={(v) => updateItems(ids, () => ({ contentAlign: v }))}
+        />
+      )}
       {ALIGNABLE_VARIANTS.has(firstVariant) && (
-        <ContentAlignControl value={first.contentAlign} onChange={(v) => updateItems(ids, () => ({ contentAlign: v }))} />
+        <ContentAlignControl
+          label="Vertical"
+          options={V_ALIGN_OPTIONS}
+          defaultValue="top"
+          value={first.contentAlignY}
+          onChange={(v) => updateItems(ids, () => ({ contentAlignY: v }))}
+        />
       )}
       <div className="prop-row">
         <label>Background</label>

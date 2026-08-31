@@ -337,39 +337,86 @@ export function resolveMoveCollision(lastValid, desired, size, rotation, neighbo
   return { x, y };
 }
 
-// Hard-stop resolution for a RESIZE: bisects along the straight line from
+// Hard-stop resolution for a RESIZE. `handle` matters here, not just the
+// two boxes: a corner handle changes width AND height from ONE mouse
+// position, but the two are independent degrees of freedom — a neighbor
+// that only blocks the growing HEIGHT must not also freeze WIDTH, which
+// has nothing to do with it. So each axis the handle actually touches
+// (skipped entirely when `handle.fx`/`fy` is 0.5 — that axis doesn't move
+// for this handle) is bisected separately along the straight line from
 // `startBox` (the gesture's fixed, guaranteed-valid starting box — same
 // "never mutated mid-gesture" value clampResizeToPage already uses) to
-// `candidateBox` (this frame's fully snapped/boundary-clamped target).
-// Since a resize only ever moves the dragged handle's own edge/corner
-// (resizeRotatedBox keeps the opposite one fixed), that straight line is
-// exactly the handle's own travel path, rotation included — no separate
-// per-axis logic needed the way move's free-form drag requires.
-export function resolveResizeCollision(startBox, candidateBox, neighborBoxes, margin = COLLISION_MARGIN) {
+// `candidateBox` (this frame's fully snapped/boundary-clamped target),
+// X first using the start height as the reference row, then Y using the
+// just-resolved width as the reference column — the same sequential
+// pattern resolveMoveCollision uses, adapted to resize's "one edge grows,
+// the opposite edge stays fixed" shape instead of free translation.
+export function resolveResizeCollision(startBox, candidateBox, handle, neighborBoxes, margin = COLLISION_MARGIN) {
   if (!neighborBoxes.length) return candidateBox;
   const collides = (box) => {
     const bbox = rotatedBoundingBox(box);
     const expanded = { minX: bbox.minX - margin, maxX: bbox.maxX + margin, minY: bbox.minY - margin, maxY: bbox.maxY + margin };
     return neighborBoxes.some((n) => boxesOverlap(expanded, n));
   };
-  if (!collides(candidateBox)) return candidateBox;
-  if (collides(startBox)) return startBox; // defensive: gesture shouldn't ever start already colliding
 
-  const lerpBox = (t) => ({
-    x: startBox.x + (candidateBox.x - startBox.x) * t,
-    y: startBox.y + (candidateBox.y - startBox.y) * t,
-    width: startBox.width + (candidateBox.width - startBox.width) * t,
-    height: startBox.height + (candidateBox.height - startBox.height) * t,
-    rotation: candidateBox.rotation,
-  });
-  let lo = 0;
-  let hi = 1;
-  for (let i = 0; i < 24; i++) {
-    const t = (lo + hi) / 2;
-    if (collides(lerpBox(t))) hi = t;
-    else lo = t;
+  let x = candidateBox.x;
+  let width = candidateBox.width;
+  if (handle.fx !== 0.5) {
+    const testX = (t) => ({
+      x: startBox.x + (candidateBox.x - startBox.x) * t,
+      y: startBox.y,
+      width: startBox.width + (candidateBox.width - startBox.width) * t,
+      height: startBox.height,
+      rotation: candidateBox.rotation,
+    });
+    if (collides(testX(0))) {
+      // Defensive: this axis was already invalid before the gesture even
+      // moved it (shouldn't normally happen) — stay exactly where it was
+      // rather than let an unclamped candidate slip through.
+      x = startBox.x;
+      width = startBox.width;
+    } else if (collides(testX(1))) {
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 24; i++) {
+        const t = (lo + hi) / 2;
+        if (collides(testX(t))) hi = t;
+        else lo = t;
+      }
+      const r = testX(lo);
+      x = r.x;
+      width = r.width;
+    }
   }
-  return lerpBox(lo);
+
+  let y = candidateBox.y;
+  let height = candidateBox.height;
+  if (handle.fy !== 0.5) {
+    const testY = (t) => ({
+      x,
+      y: startBox.y + (candidateBox.y - startBox.y) * t,
+      width,
+      height: startBox.height + (candidateBox.height - startBox.height) * t,
+      rotation: candidateBox.rotation,
+    });
+    if (collides(testY(0))) {
+      y = startBox.y;
+      height = startBox.height;
+    } else if (collides(testY(1))) {
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 24; i++) {
+        const t = (lo + hi) / 2;
+        if (collides(testY(t))) hi = t;
+        else lo = t;
+      }
+      const r = testY(lo);
+      y = r.y;
+      height = r.height;
+    }
+  }
+
+  return { x, y, width, height, rotation: candidateBox.rotation };
 }
 
 // Hard boundary constraint for a MOVE: clamp a box's position so it never

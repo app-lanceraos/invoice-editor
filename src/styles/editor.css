@@ -230,9 +230,13 @@ body {
   overflow: hidden;
 }
 
+/* height: auto (not 100%) — Prompt 13: text no longer stretches to fill
+   its box, so this only ever takes the space its own content needs;
+   CanvasItem's `.item__scale` flex wrapper positions it (top/middle/
+   bottom) within whatever's left over. */
 .item__text {
   box-sizing: border-box;
-  width: 100%; height: 100%;
+  width: 100%; height: auto;
   padding: 2px 4px;
   font-size: 10px;
 }
@@ -261,7 +265,7 @@ body {
    baked-in text itself is unchanged (see elementCatalog.js). */
 .item__label-value {
   box-sizing: border-box;
-  width: 100%; height: 100%;
+  width: 100%; height: auto;
   padding: 2px 4px;
   display: flex;
   align-items: center;
@@ -287,17 +291,6 @@ body {
   width: 100%;
   height: 100%;
 }
-
-.item__row {
-  box-sizing: border-box;
-  width: 100%; height: 100%;
-  padding: 2px 4px;
-  display: flex; align-items: center; justify-content: space-between; font-size: 9px;
-}
-/* Kept at 4px rather than tightened alongside the rest — this is the gap
-   below the divider rule, not container padding, and needs to stay clear
-   of the line above it. */
-.item__row--strong { font-weight: 700; font-size: 11px; border-top: 1px solid #262420; padding-top: 4px; }
 
 /* Already had no padding of its own before this pass — already the
    snuggest it can be, nothing to reduce here. */

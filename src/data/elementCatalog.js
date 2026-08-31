@@ -65,7 +65,11 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'text',
-    defaultBox: { x: 90, y: 36, width: 130, height: 18 },
+    // y: 42, not 36 — leaves exactly the 2px collision gap Invoice's box
+    // (above it, y:24 height:16, bottom edge 40) needs below it; the
+    // whole header row shifted down together with it (invoiceNumber,
+    // issueDate, dueDate) to keep the row's own baseline aligned.
+    defaultBox: { x: 90, y: 42, width: 130, height: 18 },
     render: () => 'Business Name',
   },
   invoiceNumber: {
@@ -73,7 +77,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'text',
-    defaultBox: { x: 236, y: 36, width: 90, height: 18 },
+    defaultBox: { x: 236, y: 42, width: 90, height: 18 },
     render: () => 'INV-0001',
   },
   // 'label-value' is a styling split only — the label ("Issue date:") and
@@ -86,7 +90,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'label-value',
-    defaultBox: { x: 342, y: 36, width: 150, height: 18 },
+    defaultBox: { x: 342, y: 42, width: 150, height: 18 },
     render: () => ({ label: 'Issue date:', value: '01-01-2026' }),
   },
   dueDate: {
@@ -94,7 +98,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'label-value',
-    defaultBox: { x: 508, y: 36, width: 150, height: 18 },
+    defaultBox: { x: 508, y: 42, width: 150, height: 18 },
     render: () => ({ label: 'Due Date:', value: '15-01-2026' }),
   },
   // block-variant `render()` returns { title, lines }: `title` is the
@@ -150,37 +154,56 @@ export const ELEMENT_TYPES = {
       ],
     }),
   },
+  // Prompt 13: these four used to be a single fused `row`/`row-strong`
+  // unit (label + value, styled as one). Reusing `label-value` — the same
+  // variant/mechanism Due Date and Issue Date already use — gives each its
+  // own independently selectable/styleable label and value part, without
+  // building a second sub-part system. `spread: true` is what keeps the
+  // price-row look (label left, value right, `justify-content: space-
+  // between` across the row's full width) instead of label-value's
+  // default tight left-anchored pair (see CanvasItem.jsx's 'label-value'
+  // case) — content alignment (left/center/right) doesn't apply to a
+  // spread row for the same reason it doesn't apply to a table cell: the
+  // spread itself already defines where label/value sit.
   subtotal: {
     label: 'Subtotal',
     required: true,
     defaultOn: true,
-    variant: 'row',
+    variant: 'label-value',
+    spread: true,
     defaultBox: { x: 542, y: 390, width: 220, height: 14 },
-    render: () => ['Subtotal', '$2,930.00'],
+    render: () => ({ label: 'Subtotal', value: '$2,930.00' }),
   },
   tax: {
     label: 'Tax',
     required: false,
     defaultOn: false,
-    variant: 'row',
+    variant: 'label-value',
+    spread: true,
     defaultBox: { x: 542, y: 416, width: 220, height: 14 },
-    render: () => ['Tax (5%)', '$146.50'],
+    render: () => ({ label: 'Tax (5%)', value: '$146.50' }),
   },
   discount: {
     label: 'Discount',
     required: false,
     defaultOn: false,
-    variant: 'row',
+    variant: 'label-value',
+    spread: true,
     defaultBox: { x: 542, y: 442, width: 220, height: 14 },
-    render: () => ['Discount', '−$100.00'],
+    render: () => ({ label: 'Discount', value: '−$100.00' }),
   },
+  // `strong: true` on top of `spread` is what used to be `row-strong` —
+  // bold weight, a larger default size, and the border-top rule above it
+  // (see CanvasItem.jsx), still independently overridable per part.
   totalDue: {
     label: 'Total due',
     required: true,
     defaultOn: true,
-    variant: 'row-strong',
+    variant: 'label-value',
+    spread: true,
+    strong: true,
     defaultBox: { x: 542, y: 468, width: 220, height: 20 },
-    render: () => ['Total due', '$2,976.50'],
+    render: () => ({ label: 'Total due', value: '$2,976.50' }),
   },
   currencyConversion: {
     label: 'Currency conversion',

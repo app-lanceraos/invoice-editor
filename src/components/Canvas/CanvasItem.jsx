@@ -1,4 +1,4 @@
-import React, { useRef, useState, useLayoutEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
@@ -36,44 +36,24 @@ function handleOffset(fx) {
   return (fx - 0.5) * 2 * HANDLE_GAP;
 }
 
-// Variants whose natural size is text-dependent (font family/weight/size,
-// which lines are hidden, and — for `block`, which wraps — the box's own
-// current width) and therefore can't be a fixed catalog guess: it's
-// measured live from an offscreen, unscaled clone of the item's own actual
-// content instead. `image`/`divider`/`qr`/`table`/`footer` are deliberately
-// excluded — each already has its own fixed or bespoke natural-size story
-// (an intrinsic asset size, a fixed grid, a page-width bar, hand-managed
-// column widths) that a text measurement would only fight with.
-const MEASURED_VARIANTS = new Set(['text', 'label-value', 'block', 'row', 'row-strong', 'note']);
+// Text-bearing variants whose box no longer scales its content (Prompt
+// 13): resizing WIDTH changes the wrapping width text reflows within,
+// resizing HEIGHT changes how much vertical room it has to sit in — font
+// size is controlled only by the explicit size field (PropertiesPanel's
+// FontControls), never derived from the box. `image`/`divider`/`qr`/
+// `table`/`footer` keep the original Prompt 3/11 content-scaling-with-box
+// behavior (an intrinsic asset size, a fixed grid, hand-managed column
+// widths, or — for `table` — a deliberate exception even though its own
+// cells are text, per Prompt 13's brief) — those still stretch via
+// `.item__scale`'s transform, unaffected by anything below.
+const TEXT_VARIANTS = new Set(['text', 'label-value', 'block', 'note']);
 
-// Renders an invisible, unscaled clone of the item's own content next to the
-// real one and reads its true rendered size via ResizeObserver — the same
-// content the visible `.item__scale` wrapper stretches, so whatever this
-// measures is exactly what the scale transform should be dividing by.
-// Deliberately NOT persisted to `item.naturalWidth/Height` (that would turn
-// every font/content change into a spurious extra undo step); it's kept in
-// local, non-history component state, same as an in-progress drag's `live`.
-function useMeasuredNatural(active) {
-  const nodeRef = useRef(null);
-  const [size, setSize] = useState(null);
-
-  useLayoutEffect(() => {
-    if (!active) return undefined;
-    const node = nodeRef.current;
-    if (!node) return undefined;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setSize((prev) =>
-        prev && Math.abs(prev.width - width) < 0.5 && Math.abs(prev.height - height) < 0.5
-          ? prev
-          : { width, height }
-      );
-    });
-    ro.observe(node);
-    return () => ro.disconnect();
-  }, [active]);
-
-  return { nodeRef, size: active ? size : null };
+// left/center/right → text-align/justify-content (Prompt 11); top/middle/
+// bottom → the outer `.item__scale` flex wrapper's justify-content
+// (Prompt 13) — this is what actually POSITIONS the (now fixed-size) text
+// within extra box height instead of stretching it to fill that height.
+function vAlignToFlex(v) {
+  return v === 'middle' ? 'center' : v === 'bottom' ? 'flex-end' : 'flex-start';
 }
 
 function partInlineStyle(item, part, fallbackColor, fallbackWeight, fallbackSize) {
@@ -117,21 +97,41 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
   });
   // How content sits inside its own box — independent of the align-to-page
   // buttons (those move the box itself; this only affects the content
-  // painted inside it). Not offered for every variant: `row`/`row-strong`
-  // already spread label/value via `justify-content: space-between`, and
-  // `table` cells have their own per-column left/right rule — a generic
-  // align control would just fight both.
+  // painted inside it). Not offered for every variant: a `spread`
+  // label-value (Subtotal etc.) already spreads label/value via
+  // `justify-content: space-between`, and `table` cells have their own
+  // per-column left/right rule — a generic align control would just fight
+  // both. Vertical position (top/middle/bottom) is a separate, outer
+  // concern — see the `.item__scale` flex wrapper in CanvasItem below —
+  // this only ever governs horizontal placement.
   const alignStyle = () => ({ textAlign: item.contentAlign || 'left' });
 
   switch (def.variant) {
     case 'text':
-      return <div className="item__text" style={{ ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
+      return <div className="item__text" style={{ height: 'auto', ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
     case 'label-value': {
-      const labelStyle = partInlineStyle(item, 'label', undefined, undefined, 10);
-      const valueStyle = partInlineStyle(item, 'value', undefined, undefined, 10);
-      const justify = item.contentAlign === 'center' ? 'center' : item.contentAlign === 'right' ? 'flex-end' : 'flex-start';
+      const fallbackWeight = def.strong ? 700 : undefined;
+      const fallbackSize = def.strong ? 11 : 10;
+      const labelStyle = partInlineStyle(item, 'label', undefined, fallbackWeight, fallbackSize);
+      const valueStyle = partInlineStyle(item, 'value', undefined, fallbackWeight, fallbackSize);
+      // `spread` (Subtotal/Tax/Discount/Total due) always spreads label
+      // left / value right across the row's full width — the whole-item
+      // align control doesn't apply to these (see ALIGNABLE_VARIANTS in
+      // PropertiesPanel.jsx), so `item.contentAlign` is only meaningful
+      // for a tight, non-spread pair like Due Date/Issue Date.
+      const justify = def.spread
+        ? 'space-between'
+        : item.contentAlign === 'center' ? 'center' : item.contentAlign === 'right' ? 'flex-end' : 'flex-start';
       return (
-        <div className="item__label-value" style={{ justifyContent: justify }}>
+        <div
+          className="item__label-value"
+          style={{
+            height: 'auto',
+            justifyContent: justify,
+            borderTop: def.strong ? '1px solid #262420' : undefined,
+            paddingTop: def.strong ? 4 : undefined,
+          }}
+        >
           <span
             className={`item__label${isPartSelected('label') ? ' item__label--selected' : ''}`}
             style={labelStyle}
@@ -154,11 +154,16 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       // `text-align` — every line inherits it unless that specific part
       // has its own override (partInlineStyle only sets `textAlign` when
       // the part actually has one, so inheritance passes through cleanly).
+      // `height: 'auto'` (inline, not the shared `.item__block` CSS
+      // default of 100%) — this class is also reused by `qr`'s title+body
+      // layout below, which still needs height:100% for its `flex: 1`
+      // QR-code area to fill the (still content-scaled) box; only this
+      // case's own instance opts out of that.
       const titleStyle = partInlineStyle(item, 'title', '#a2896b', undefined, 8);
       const hidden = item.hiddenLines || [];
       const visibleLines = data.lines.filter((line) => !hidden.includes(line.key));
       return (
-        <div className="item__block" style={alignStyle()}>
+        <div className="item__block" style={{ height: 'auto', ...alignStyle() }}>
           <div
             className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : ''}`}
             style={titleStyle}
@@ -179,20 +184,8 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
         </div>
       );
     }
-    case 'row':
-      return (
-        <div className="item__row" style={fontStyle(undefined, 9)}>
-          <span>{data[0]}</span><span>{data[1]}</span>
-        </div>
-      );
-    case 'row-strong':
-      return (
-        <div className="item__row item__row--strong" style={fontStyle(700, 11)}>
-          <span>{data[0]}</span><span>{data[1]}</span>
-        </div>
-      );
     case 'note':
-      return <div className="item__text" style={{ opacity: 0.6, ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
+      return <div className="item__text" style={{ height: 'auto', opacity: 0.6, ...fontStyle(undefined, 10), ...alignStyle() }}>{data}</div>;
     case 'image':
       // No border/background of its own — the outer frame (CanvasItem)
       // already renders the item's border/background, and this placeholder
@@ -414,15 +407,18 @@ export default function CanvasItem({ item, readOnly = false }) {
   const current = { ...item, ...(live || {}) };
   const rotation = current.rotation || 0;
 
-  const isMeasured = !!def && MEASURED_VARIANTS.has(def.variant);
-  const { nodeRef: measureRef, size: measuredSize } = useMeasuredNatural(isMeasured);
-  // Falls back to the catalog's seed size until the first measurement
-  // resolves (avoids a NaN/zero scale flash), and forever for variants
-  // that don't measure at all.
-  const naturalWidth = isMeasured && measuredSize ? measuredSize.width : item.naturalWidth;
-  const naturalHeight = isMeasured && measuredSize ? measuredSize.height : item.naturalHeight;
-  const scaleX = naturalWidth > 0 ? current.width / naturalWidth : 1;
-  const scaleY = naturalHeight > 0 ? current.height / naturalHeight : 1;
+  // Text variants (Prompt 13) don't scale their content to the box at
+  // all: scale is pinned to 1, and the `.item__scale` wrapper is sized to
+  // the box directly (current.width/height) rather than a natural size —
+  // width becomes the text's wrapping width, height becomes the space its
+  // vertical alignment positions it within. Every other variant keeps the
+  // original Prompt 3/11 behavior unchanged: content renders at its fixed
+  // natural size and a transform stretches it to fill the box.
+  const isTextVariant = !!def && TEXT_VARIANTS.has(def.variant);
+  const scaleX = isTextVariant || !(item.naturalWidth > 0) ? 1 : current.width / item.naturalWidth;
+  const scaleY = isTextVariant || !(item.naturalHeight > 0) ? 1 : current.height / item.naturalHeight;
+  const scaleWrapperWidth = isTextVariant ? current.width : item.naturalWidth;
+  const scaleWrapperHeight = isTextVariant ? current.height : item.naturalHeight;
 
   const beginMove = (e) => {
     e.stopPropagation();
@@ -551,7 +547,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       const clamped = clampResizeToPage(raw, handle, bounds);
       let box = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height, rotation: start.rotation };
       if (collisionNeighbors) {
-        box = resolveResizeCollision(start, box, collisionNeighbors);
+        box = resolveResizeCollision(start, box, handle, collisionNeighbors);
       }
       finalBox = { x: box.x, y: box.y, width: box.width, height: box.height };
       setEdgeHighlight(clamped.edges);
@@ -678,14 +674,20 @@ export default function CanvasItem({ item, readOnly = false }) {
       <div
         className="item__scale"
         style={{
-          width: naturalWidth,
-          height: naturalHeight,
-          transform: `scale(${scaleX}, ${scaleY})`,
-          // Text content is measured, not guessed — if it's ever briefly
-          // wrong (mid re-measure, or a not-yet-supported font), this makes
-          // it degrade to spilling past its box instead of being silently
-          // cropped by the CSS class's default `overflow: hidden`.
-          overflow: isMeasured ? 'visible' : undefined,
+          width: scaleWrapperWidth,
+          height: scaleWrapperHeight,
+          transform: isTextVariant ? undefined : `scale(${scaleX}, ${scaleY})`,
+          // A box smaller than its text's natural footprint should show
+          // that (spill past the box, still fully visible) rather than
+          // silently clip it away — same safety net as before, just no
+          // longer paired with a scale transform for text variants.
+          overflow: isTextVariant ? 'visible' : undefined,
+          // Text variants position their (fixed-size) content within any
+          // extra box height via this flex wrapper instead of stretching
+          // it — top/middle/bottom, Prompt 13's new vertical align control.
+          display: isTextVariant ? 'flex' : undefined,
+          flexDirection: isTextVariant ? 'column' : undefined,
+          justifyContent: isTextVariant ? vAlignToFlex(item.contentAlignY) : undefined,
         }}
       >
         {item.kind === 'shape' ? (
@@ -694,35 +696,6 @@ export default function CanvasItem({ item, readOnly = false }) {
           <ContentBody item={current} isPartSelected={isPartSelected} onSelectPart={readOnly ? NOOP : handlePartClick} />
         )}
       </div>
-
-      {isMeasured && (
-        <div
-          ref={measureRef}
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            visibility: 'hidden',
-            pointerEvents: 'none',
-            zIndex: -1,
-            // `block` wraps its lines at the box's own width, so its true
-            // natural height depends on that width. `row`/`row-strong`/
-            // `note` use `justify-content: space-between` across a
-            // deliberately-wide column — shrink-to-fit would collapse
-            // that gap to zero (nothing left to distribute) and the scale
-            // transform would then just stretch a zero gap into a still-
-            // zero one, running label and value together. All three mirror
-            // the item's current width so only height (the thing that was
-            // actually guessed wrong) gets corrected; width stays pinned at
-            // scale 1. `text`/`label-value` are single short labels that
-            // shrink-to-fit their own content, so they're left unconstrained.
-            ...(['block', 'row', 'row-strong', 'note'].includes(def.variant) ? { width: current.width } : {}),
-          }}
-        >
-          <ContentBody item={current} isPartSelected={() => false} onSelectPart={() => {}} />
-        </div>
-      )}
 
       {isWholeSelected && !item.locked && def?.variant === 'table' && (() => {
         const widths = current.columnWidths || defaultColumnWidths(def.render().columns.length);
