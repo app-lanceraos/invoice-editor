@@ -272,14 +272,6 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 32, y: 1070, width: 110, height: 12 },
     render: () => 'Authorised Signature',
   },
-  wordmark: {
-    label: 'Wordmark',
-    required: false,
-    defaultOn: false,
-    variant: 'image',
-    defaultBox: { x: 347, y: 1085, width: 100, height: 24 },
-    render: () => ({ kind: 'image', placeholder: 'wordmark' }),
-  },
   // Fixed page chrome, not an optional element: `hidden` keeps it out of the
   // elements library panel entirely, `locked` (propagated onto the created
   // item below) is the one mechanism CanvasItem/deleteItems/duplicateItems

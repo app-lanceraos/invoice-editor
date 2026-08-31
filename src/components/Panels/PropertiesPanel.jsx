@@ -237,6 +237,25 @@ function TableProperties({ item }) {
   );
 }
 
+// Footer-only controls (gated to that one item type, same pattern as
+// Prompt 8's table controls). Text color and background are already
+// covered by the generic ContentProperties above (which now works for the
+// footer since it became selectable) — this just adds the one control
+// that's genuinely new: the divider rule above the footer.
+function FooterProperties({ item }) {
+  const { updateItem } = useEditor();
+
+  return (
+    <>
+      <div className="panel__section-title">Footer — Divider</div>
+      <div className="prop-row">
+        <label>Divider color</label>
+        <input type="color" value={item.dividerColor || '#e5e1d6'} onChange={(e) => updateItem(item.id, { dividerColor: e.target.value })} />
+      </div>
+    </>
+  );
+}
+
 function PageProperties() {
   const { template, updatePageBackground } = useEditor();
 
@@ -312,6 +331,9 @@ export default function PropertiesPanel() {
               <ContentProperties items={selectedItems} />
               {selectedItems.length === 1 && selectedItems[0].type === 'itemsTable' && (
                 <TableProperties item={selectedItems[0]} />
+              )}
+              {selectedItems.length === 1 && selectedItems[0].type === 'footer' && (
+                <FooterProperties item={selectedItems[0]} />
               )}
             </>
           )}

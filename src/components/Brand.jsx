@@ -24,6 +24,16 @@ export function LogoSVG({ size = 32 }) {
 }
 
 export function WordmarkSVG({ width = 140, height = 21 }) {
+  // The wordmark's glyphs only occupy the top ~73% of this viewBox (no
+  // descenders in "LanceraOS", so all ~27% of empty space sits below
+  // them, none above — measured directly off the path's own geometry).
+  // A plain flex/baseline pairing next to text treats this whole box's
+  // bottom edge as the mark's baseline, which reads as the wordmark
+  // sitting too high by roughly that empty margin. Shifting the box down
+  // by that same percentage of ITS OWN height (not a fixed px value, so
+  // it holds at any requested width/height) puts the visible letters back
+  // on the actual shared baseline instead of the box's artificial one.
+  const BOTTOM_PADDING_PCT = 26.97;
   return (
     <svg
       viewBox="0 0 140 21"
@@ -31,7 +41,7 @@ export function WordmarkSVG({ width = 140, height = 21 }) {
       width={width}
       height={height}
       aria-label="LanceraOS"
-      style={{ display: 'block', flexShrink: 0 }}
+      style={{ display: 'block', flexShrink: 0, transform: `translateY(${BOTTOM_PADDING_PCT}%)` }}
     >
       <path
         fill="var(--wordmark)"

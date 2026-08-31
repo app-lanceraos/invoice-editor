@@ -143,8 +143,8 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
           </svg>
         );
       }
-      // Wordmark (and any future plain image placeholder) keeps the
-      // simple text-label placeholder.
+      // Any other 'image'-variant type (none currently defined) falls back
+      // to the plain text-label placeholder.
       return <div className="item__image-placeholder">{data.placeholder}</div>;
     case 'divider':
       // A plain content-item version of the decorative line shape (color
@@ -186,8 +186,23 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       );
     }
     case 'footer':
+      // color/borderTopColor set directly here (not just on the outer
+      // frame) — .item__footer has its own hardcoded CSS color and
+      // border-top, both of which are direct rules on this exact element
+      // and would otherwise beat an inherited value from the frame,
+      // same class of override needed for row-strong/table-th earlier.
+      // fontStyle() cascades to footer-left/right via ordinary
+      // inheritance — neither has its own font-family/weight rule to
+      // fight with, unlike table's th.
       return (
-        <div className="item__footer">
+        <div
+          className="item__footer"
+          style={{
+            color: item.textColor || undefined,
+            borderTopColor: item.dividerColor || undefined,
+            ...fontStyle(),
+          }}
+        >
           <div className="item__footer-left">
             <div>{data.businessName}</div>
             <div>{data.email}</div>
@@ -311,7 +326,14 @@ export default function CanvasItem({ item }) {
 
   const beginMove = (e) => {
     e.stopPropagation();
-    if (item.locked) return;
+    if (item.locked) {
+      // Still selectable (so its own style controls, e.g. the footer's,
+      // are reachable) — just never moved, resized, or rotated. No
+      // shift-toggle/multi-select for a locked item; a plain click just
+      // selects it on its own.
+      if (!selection.ids.includes(item.id)) setSelection({ ids: [item.id], part: null });
+      return;
+    }
     draggedRef.current = false;
 
     if (e.shiftKey) {
