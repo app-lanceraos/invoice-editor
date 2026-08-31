@@ -388,6 +388,35 @@ body {
 .page-edge-glow--left { top: 0; bottom: 0; left: 0; width: 3px; }
 .page-edge-glow--right { top: 0; bottom: 0; right: 0; width: 3px; }
 
+/* Smart alignment guides (item-to-item, not page-boundary — see
+   .page-edge-glow above for that): a distinct accent color so the two
+   systems stay visually separable when both show at once. Transient,
+   only while a drag/resize gesture is engaged (CanvasItem's computeGuides). */
+.align-guide {
+  position: absolute;
+  background: #ff3d8a;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.align-guide--vertical { top: 0; bottom: 0; width: 1px; }
+.align-guide--horizontal { left: 0; right: 0; height: 1px; }
+
+.align-guide-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: #ff3d8a;
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 7;
+}
+
 .rail-overlay {
   position: absolute;
   border: 1.5px dashed var(--purple-300);

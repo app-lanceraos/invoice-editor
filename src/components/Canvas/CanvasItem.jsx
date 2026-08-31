@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
-import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds } from '../../utils/geometry';
+import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, computeGuides } from '../../utils/geometry';
 
 function partInlineStyle(item, part, fallbackColor) {
   const s = (item && item[part]) || {};
@@ -173,7 +173,7 @@ const RotateIcon = (
 // only the rendered body (ShapeBody vs ContentBody) and a few style fields
 // differ by `item.kind`.
 export default function CanvasItem({ item }) {
-  const { template, selection, setSelection, updateItem, setEdgeHighlight } = useEditor();
+  const { template, selection, setSelection, updateItem, setEdgeHighlight, setGuides } = useEditor();
   const def = item.kind === 'content' ? ELEMENT_TYPES[item.type] : null;
 
   const isSelected = selection.ids.includes(item.id);
@@ -224,6 +224,7 @@ export default function CanvasItem({ item }) {
       const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, bounds);
       finalPos = { x: clamped.x, y: clamped.y };
       setEdgeHighlight(clamped.edges);
+      setGuides(computeGuides({ x: clamped.x, y: clamped.y, width: item.width, height: item.height }, others));
       setLive(finalPos);
     };
     const onUp = () => {
@@ -232,6 +233,7 @@ export default function CanvasItem({ item }) {
       if (finalPos) updateItem(item.id, finalPos);
       setLive(null);
       setEdgeHighlight(null);
+      setGuides(null);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -243,8 +245,13 @@ export default function CanvasItem({ item }) {
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
     const bounds = getItemBounds(item, template.page);
-    const pageXEdges = [bounds.minX, bounds.maxX];
-    const pageYEdges = [bounds.minY, bounds.maxY];
+    const others = template.items.filter((i) => i.id !== item.id);
+    // Same candidate set a move drag snaps against: every other item's
+    // left/center/right (or top/center/bottom), plus this item's own page
+    // boundary — a resized edge should land flush against a neighbor just
+    // as readily as against the page edge.
+    const snapXCandidates = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
+    const snapYCandidates = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
     let finalBox = null;
 
     const onMove = (ev) => {
@@ -256,18 +263,18 @@ export default function CanvasItem({ item }) {
       // left/right, but must adjust width oppositely so the right edge
       // stays exactly where the resize gesture already fixed it.
       if (handle.fx === 1) {
-        const delta = snapAxis(raw.x + raw.width, 0, pageXEdges);
+        const delta = snapAxis(raw.x + raw.width, 0, snapXCandidates);
         raw.width += delta;
       } else if (handle.fx === 0) {
-        const delta = snapAxis(raw.x, 0, pageXEdges);
+        const delta = snapAxis(raw.x, 0, snapXCandidates);
         raw.x += delta;
         raw.width -= delta;
       }
       if (handle.fy === 1) {
-        const delta = snapAxis(raw.y + raw.height, 0, pageYEdges);
+        const delta = snapAxis(raw.y + raw.height, 0, snapYCandidates);
         raw.height += delta;
       } else if (handle.fy === 0) {
-        const delta = snapAxis(raw.y, 0, pageYEdges);
+        const delta = snapAxis(raw.y, 0, snapYCandidates);
         raw.y += delta;
         raw.height -= delta;
       }
@@ -275,6 +282,7 @@ export default function CanvasItem({ item }) {
       const clamped = clampResizeToPage(raw, handle, bounds);
       finalBox = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height };
       setEdgeHighlight(clamped.edges);
+      setGuides(computeGuides(finalBox, others));
       setLive(finalBox);
     };
     const onUp = () => {
@@ -283,6 +291,7 @@ export default function CanvasItem({ item }) {
       if (finalBox) updateItem(item.id, finalBox);
       setLive(null);
       setEdgeHighlight(null);
+      setGuides(null);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);

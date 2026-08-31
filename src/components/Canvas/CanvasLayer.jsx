@@ -9,7 +9,7 @@ import CanvasItem from './CanvasItem';
 // regardless of where either sits in the underlying flat `template.items`
 // array (which only orders items relative to their own kind-group).
 export default function CanvasLayer() {
-  const { template, selection, setSelection } = useEditor();
+  const { template, selection, setSelection, guides } = useEditor();
   const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas
 
   const shapes = template.items.filter((i) => i.kind === 'shape');
@@ -90,6 +90,19 @@ export default function CanvasLayer() {
           style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, borderStyle: 'solid' }}
         />
       )}
+
+      {/* Smart guides: transient, only while a drag/resize gesture is
+          active (see CanvasItem's computeGuides use) — full-span alignment
+          lines plus live distance labels to nearby items. */}
+      {guides?.vertical.map((x) => (
+        <div key={`gv-${x}`} className="align-guide align-guide--vertical" style={{ left: x }} />
+      ))}
+      {guides?.horizontal.map((y) => (
+        <div key={`gh-${y}`} className="align-guide align-guide--horizontal" style={{ top: y }} />
+      ))}
+      {guides?.labels.map((l, i) => (
+        <div key={i} className="align-guide-label" style={{ left: l.x, top: l.y }}>{l.text}</div>
+      ))}
     </div>
   );
 }

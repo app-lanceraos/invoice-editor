@@ -135,6 +135,88 @@ export function snapAxis(pos, size, otherEdges, tolerance = 4) {
   return best;
 }
 
+// How close (px) a candidate has to be for a full-span alignment guide line
+// to appear — same tolerance snapAxis already uses for the actual snap, so
+// a guide only ever shows for an alignment that's actually engaged.
+const GUIDE_TOLERANCE = 4;
+// How far away (px) a neighboring item can be for its gap to still be worth
+// showing as a live distance label — beyond this it's not "nearby" in any
+// visually useful sense.
+const DISTANCE_LABEL_RANGE = 160;
+
+// Every point on `otherPoints` within `tolerance` of any of the box's own
+// left/center/right (or top/center/bottom, whichever axis `pos`/`size`
+// represent) — i.e. every alignment that's actually engaged right now, not
+// just the single closest one snapAxis uses for the position delta. Several
+// other items can legitimately share the same aligned line (three items all
+// left-aligned at the same x, say), so this dedupes to the line positions
+// themselves rather than one entry per contributing item.
+function findAlignments(pos, size, otherPoints, tolerance = GUIDE_TOLERANCE) {
+  const points = [pos, pos + size / 2, pos + size];
+  const matches = new Set();
+  points.forEach((p) => {
+    otherPoints.forEach((op) => {
+      if (Math.abs(op - p) <= tolerance) matches.add(op);
+    });
+  });
+  return Array.from(matches);
+}
+
+// Smart guides for a box mid-drag/resize against every OTHER item (shapes
+// included — aligning text to a decorative rail's edge is a real case).
+// Two independent things, both purely visual/informational:
+//   - `vertical`/`horizontal`: page-spanning line positions to render,
+//     wherever this box's own edges/center are actually within tolerance
+//     of another item's — separate from the page-boundary edge highlight,
+//     which is its own system (see clampToPage/clampResizeToPage).
+//   - `labels`: live pixel-gap readouts to the nearest non-overlapping
+//     neighbor on each side, shown independent of whether a snap is
+//     engaged — "nearest in the same row/column, and close enough to be
+//     worth mentioning" per DISTANCE_LABEL_RANGE.
+export function computeGuides(box, others) {
+  const otherXPoints = others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]);
+  const otherYPoints = others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]);
+  const vertical = findAlignments(box.x, box.width, otherXPoints);
+  const horizontal = findAlignments(box.y, box.height, otherYPoints);
+
+  const rowNeighbors = others.filter((o) => o.y < box.y + box.height && o.y + o.height > box.y);
+  const colNeighbors = others.filter((o) => o.x < box.x + box.width && o.x + o.width > box.x);
+
+  let leftGap = null;
+  let rightGap = null;
+  rowNeighbors.forEach((o) => {
+    if (o.x + o.width <= box.x) {
+      const gap = box.x - (o.x + o.width);
+      if (gap <= DISTANCE_LABEL_RANGE && (!leftGap || gap < leftGap)) leftGap = gap;
+    }
+    if (o.x >= box.x + box.width) {
+      const gap = o.x - (box.x + box.width);
+      if (gap <= DISTANCE_LABEL_RANGE && (!rightGap || gap < rightGap)) rightGap = gap;
+    }
+  });
+
+  let topGap = null;
+  let bottomGap = null;
+  colNeighbors.forEach((o) => {
+    if (o.y + o.height <= box.y) {
+      const gap = box.y - (o.y + o.height);
+      if (gap <= DISTANCE_LABEL_RANGE && (!topGap || gap < topGap)) topGap = gap;
+    }
+    if (o.y >= box.y + box.height) {
+      const gap = o.y - (box.y + box.height);
+      if (gap <= DISTANCE_LABEL_RANGE && (!bottomGap || gap < bottomGap)) bottomGap = gap;
+    }
+  });
+
+  const labels = [];
+  if (leftGap !== null) labels.push({ x: box.x - leftGap / 2, y: box.y + box.height / 2, text: `${Math.round(leftGap)}px` });
+  if (rightGap !== null) labels.push({ x: box.x + box.width + rightGap / 2, y: box.y + box.height / 2, text: `${Math.round(rightGap)}px` });
+  if (topGap !== null) labels.push({ x: box.x + box.width / 2, y: box.y - topGap / 2, text: `${Math.round(topGap)}px` });
+  if (bottomGap !== null) labels.push({ x: box.x + box.width / 2, y: box.y + box.height + bottomGap / 2, text: `${Math.round(bottomGap)}px` });
+
+  return { vertical, horizontal, labels };
+}
+
 // Hard boundary constraint for a MOVE: clamp a box's position so it never
 // leaves `bounds` (see getItemBounds — [0,page.width] for a shape,
 // [PAGE_PADDING, page.width-PAGE_PADDING] for a content item, same on Y),

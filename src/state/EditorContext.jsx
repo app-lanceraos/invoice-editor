@@ -18,6 +18,11 @@ export function EditorProvider({ children }) {
   // Transient, not history: which page edge(s) an in-progress drag/resize
   // is currently touching, for the edge-contact highlight. null when idle.
   const [edgeHighlight, setEdgeHighlight] = useState(null);
+  // Transient, not history: smart alignment guides + live distance labels
+  // for an in-progress drag/resize (see computeGuides) — { vertical,
+  // horizontal, labels } | null. Separate from edgeHighlight since guides
+  // are item-to-item, not page-boundary.
+  const [guides, setGuides] = useState(null);
 
   const template = history.present;
 
@@ -242,6 +247,8 @@ export function EditorProvider({ children }) {
     setSelection,
     edgeHighlight,
     setEdgeHighlight,
+    guides,
+    setGuides,
     toggleContentItem,
     updateItem,
     updateItems,
