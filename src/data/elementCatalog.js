@@ -65,21 +65,26 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 236, y: 36, width: 90, height: 18 },
     render: () => 'INV-0001',
   },
+  // 'label-value' is a styling split only — the label ("Issue date:") and
+  // the value ("01-01-2026") are each their own independently-selectable
+  // part (see item.label / item.value in CanvasItem.jsx, same pattern as
+  // block title/lines), but the displayed text itself is exactly what it
+  // always was, still fixed baked-in content.
   issueDate: {
     label: 'Issue date',
     required: true,
     defaultOn: true,
-    variant: 'text',
+    variant: 'label-value',
     defaultBox: { x: 342, y: 36, width: 150, height: 18 },
-    render: () => 'Issue date: 01-01-2026',
+    render: () => ({ label: 'Issue date:', value: '01-01-2026' }),
   },
   dueDate: {
     label: 'Due date',
     required: true,
     defaultOn: true,
-    variant: 'text',
+    variant: 'label-value',
     defaultBox: { x: 508, y: 36, width: 150, height: 18 },
-    render: () => 'Due Date: 15-01-2026',
+    render: () => ({ label: 'Due Date:', value: '15-01-2026' }),
   },
   // block-variant `render()` returns { title, lines }: `title` is the
   // heading (never individually deletable), `lines` is the body, each with

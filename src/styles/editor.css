@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Doto:wght@600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Doto:wght@600&family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 * { box-sizing: border-box; }
 
@@ -256,6 +256,27 @@ body {
   border-radius: 3px;
 }
 
+/* Due Date / Issue Date: a fixed "Label: Value" line split into two
+   independently-selectable/styleable spans — a styling split only, the
+   baked-in text itself is unchanged (see elementCatalog.js). */
+.item__label-value {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.item__label--selected,
+.item__value--selected {
+  outline: 1.5px solid var(--purple-500);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
 .item__image-placeholder {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
@@ -449,6 +470,17 @@ body {
 .prop-row input[type="number"] {
   width: 110px;
   accent-color: var(--purple-500);
+}
+
+.prop-row select {
+  width: 140px;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+  border-radius: 4px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  padding: 4px 6px;
 }
 
 .align-grid {

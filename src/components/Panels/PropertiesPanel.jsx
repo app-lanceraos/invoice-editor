@@ -2,33 +2,80 @@ import React from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { getItemBounds } from '../../utils/geometry';
+import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fonts';
 
-// Variants whose text is split into an independently-styleable title/body
-// (see item.title / item.body) — kept in sync with CanvasItem.
-const SUB_PART_VARIANTS = new Set(['block', 'qr']);
+// Variants whose text is split into independently-styleable parts (see
+// item[part] in CanvasItem.jsx) — kept in sync with CanvasItem:
+//   block/qr:     'title' + per-line keys ('body' for qr's image half)
+//   label-value:  'label' + 'value' (Due Date / Issue Date)
+const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
+
+// Font-family + font-weight controls, shared by whole-item and per-part
+// property panels alike. `style` is whatever flat style object (an item,
+// or an item[part]) already holds textColor/bgColor/etc; `onChange` gets
+// just the font patch to merge in the same way those other controls do.
+function FontControls({ style, onChange }) {
+  const currentFamily = fontFamilyById(style.fontFamily);
+  const weights = currentFamily.weights;
+  const currentWeight = style.fontWeight && weights.includes(style.fontWeight) ? style.fontWeight : weights[0];
+
+  return (
+    <>
+      <div className="prop-row">
+        <label>Font</label>
+        <select
+          value={currentFamily.id}
+          onChange={(e) => {
+            const next = FONT_FAMILIES.find((f) => f.id === e.target.value);
+            onChange({ fontFamily: next.id, fontWeight: next.weights[0] });
+          }}
+        >
+          {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+      </div>
+      <div className="prop-row">
+        <label>Weight</label>
+        <select value={currentWeight} onChange={(e) => onChange({ fontWeight: Number(e.target.value) })}>
+          {weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
+        </select>
+      </div>
+    </>
+  );
+}
+
+// Which label to show for a sub-part in its own panel, and whether it's
+// individually deletable — the only deletable parts are optional block
+// lines (Prompt 5); label/value (Due Date, Issue Date) and qr's title/body
+// are fixed content, styleable but never removable.
+function partMeta(def, part) {
+  if (part === 'title') return { label: 'Title', deletable: false };
+  if (def.variant === 'block') {
+    const line = def.render().lines.find((l) => l.key === part);
+    return { label: line?.label || 'Body', deletable: !!line && !line.required, required: line?.required };
+  }
+  if (def.variant === 'label-value') {
+    return { label: part === 'label' ? 'Label' : 'Value', deletable: false };
+  }
+  return { label: 'Body', deletable: false }; // qr's image half
+}
 
 function PartProperties({ item, part }) {
   const { updateItemPart, deleteBlockLine } = useEditor();
   const def = ELEMENT_TYPES[item.type];
-  const isTitle = part === 'title';
-  // For 'qr', the only non-title part is its image body (key 'body'),
-  // which has no catalog line entry to look up — treat it as a fixed,
-  // non-deletable part alongside the title.
-  const line = def.variant === 'block' ? def.render().lines.find((l) => l.key === part) : null;
-  const partLabel = isTitle ? 'Title' : line?.label || 'Body';
-  const isDeletable = !isTitle && def.variant === 'block' && line && !line.required;
+  const meta = partMeta(def, part);
   const partStyle = item[part] || {};
-  const defaultColor = isTitle ? '#a2896b' : '#55524a';
+  const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
 
   return (
     <>
       <div className="panel__section-title">
-        {def.label} — {partLabel}
+        {def.label} — {meta.label}
       </div>
       <div className="prop-row">
         <label>Text color</label>
         <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
       </div>
+      <FontControls style={partStyle} onChange={(patch) => updateItemPart(item.id, part, patch)} />
       <div className="prop-row">
         <label>Background</label>
         <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
@@ -41,12 +88,12 @@ function PartProperties({ item, part }) {
         <label>Border width</label>
         <input type="range" min="0" max="6" value={partStyle.borderWidth || 0} onChange={(e) => updateItemPart(item.id, part, { borderWidth: Number(e.target.value) })} />
       </div>
-      {isDeletable && (
+      {meta.deletable && (
         <button className="tbtn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => deleteBlockLine(item.id, part)}>
           Delete this line
         </button>
       )}
-      {!isDeletable && !isTitle && def.variant === 'block' && (
+      {!meta.deletable && def.variant === 'block' && part !== 'title' && (
         <p className="empty-hint">This line is required and can't be removed.</p>
       )}
     </>
@@ -57,18 +104,26 @@ function ContentProperties({ items }) {
   const { updateItems } = useEditor();
   const ids = items.map((i) => i.id);
   const first = items[0];
-  const hideTextColor = items.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[first.type].variant);
+  // block/qr/label-value's own text lives in their sub-parts (styled via
+  // PartProperties instead) — the whole-item selection here only covers
+  // their outer card (background/border), not a font a whole-item control
+  // would even apply to. Every other variant is a single flat text run,
+  // where the whole-item controls ARE the text controls.
+  const hasSubParts = items.length === 1 && SUB_PART_VARIANTS.has(ELEMENT_TYPES[first.type].variant);
 
   return (
     <>
       <div className="panel__section-title">
         {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
       </div>
-      {!hideTextColor && (
-        <div className="prop-row">
-          <label>Text color</label>
-          <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
-        </div>
+      {!hasSubParts && (
+        <>
+          <div className="prop-row">
+            <label>Text color</label>
+            <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
+          </div>
+          <FontControls style={first} onChange={(patch) => updateItems(ids, () => patch)} />
+        </>
       )}
       <div className="prop-row">
         <label>Background</label>

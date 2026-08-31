@@ -2,9 +2,10 @@ import React, { useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
+import { fontFamilyCSS } from '../../data/fonts';
 import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, computeGuides } from '../../utils/geometry';
 
-function partInlineStyle(item, part, fallbackColor) {
+function partInlineStyle(item, part, fallbackColor, fallbackWeight) {
   const s = (item && item[part]) || {};
   return {
     color: s.textColor || fallbackColor,
@@ -12,6 +13,8 @@ function partInlineStyle(item, part, fallbackColor) {
     borderColor: s.borderColor,
     borderWidth: s.borderWidth ? `${s.borderWidth}px` : undefined,
     borderStyle: s.borderWidth ? 'solid' : undefined,
+    fontFamily: fontFamilyCSS(s.fontFamily),
+    fontWeight: s.fontWeight || fallbackWeight,
   };
 }
 
@@ -24,9 +27,42 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
   const def = ELEMENT_TYPES[item.type];
   const data = def.render();
 
+  // Applied directly on the leaf text-bearing element (not inherited down
+  // from the outer frame) so a variant with its own baked-in default weight
+  // (row-strong's bold, a table header's bold) can supply that default
+  // itself and still have the user's explicit choice win outright — an
+  // inline style set here always beats both inheritance and any CSS rule,
+  // default browser styling included.
+  const fontStyle = (fallbackWeight) => ({
+    fontFamily: fontFamilyCSS(item.fontFamily),
+    fontWeight: item.fontWeight || fallbackWeight,
+  });
+
   switch (def.variant) {
     case 'text':
-      return <div className="item__text">{data}</div>;
+      return <div className="item__text" style={fontStyle()}>{data}</div>;
+    case 'label-value': {
+      const labelStyle = partInlineStyle(item, 'label', undefined);
+      const valueStyle = partInlineStyle(item, 'value', undefined);
+      return (
+        <div className="item__label-value">
+          <span
+            className={`item__label${isPartSelected('label') ? ' item__label--selected' : ''}`}
+            style={labelStyle}
+            onClick={(e) => onSelectPart(e, 'label')}
+          >
+            {data.label}
+          </span>
+          <span
+            className={`item__value${isPartSelected('value') ? ' item__value--selected' : ''}`}
+            style={valueStyle}
+            onClick={(e) => onSelectPart(e, 'value')}
+          >
+            {data.value}
+          </span>
+        </div>
+      );
+    }
     case 'block': {
       const titleStyle = partInlineStyle(item, 'title', '#a2896b');
       const hidden = item.hiddenLines || [];
@@ -55,18 +91,18 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
     }
     case 'row':
       return (
-        <div className="item__row">
+        <div className="item__row" style={fontStyle()}>
           <span>{data[0]}</span><span>{data[1]}</span>
         </div>
       );
     case 'row-strong':
       return (
-        <div className="item__row item__row--strong">
+        <div className="item__row item__row--strong" style={fontStyle(700)}>
           <span>{data[0]}</span><span>{data[1]}</span>
         </div>
       );
     case 'note':
-      return <div className="item__text" style={{ opacity: 0.6 }}>{data}</div>;
+      return <div className="item__text" style={{ opacity: 0.6, ...fontStyle() }}>{data}</div>;
     case 'image':
       // No border/background of its own — the outer frame (CanvasItem)
       // already renders the item's border/background, and this placeholder
@@ -121,14 +157,18 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
         </div>
       );
     case 'table':
+      // Font family/weight applied directly per th/td rather than on the
+      // outer frame: a `<th>`'s own browser-default bold would otherwise
+      // beat an inherited weight regardless of where that weight came
+      // from, so th needs its own explicit (overridable) bold default.
       return (
         <table className="item__table">
           <thead>
-            <tr>{data.columns.map((c) => <th key={c}>{c}</th>)}</tr>
+            <tr>{data.columns.map((c) => <th key={c} style={fontStyle(700)}>{c}</th>)}</tr>
           </thead>
           <tbody>
             {data.rows.map((row, i) => (
-              <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
+              <tr key={i}>{row.map((cell, j) => <td key={j} style={fontStyle()}>{cell}</td>)}</tr>
             ))}
           </tbody>
         </table>
