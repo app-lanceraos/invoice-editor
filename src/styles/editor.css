@@ -369,6 +369,30 @@ body {
   transform: translate(-50%, -50%);
 }
 
+/* A table's column-boundary dividers — separate from the 8-point resize
+   handles above: dragging one redistributes width between the two
+   adjacent columns only, the table's own total width/height untouched. */
+.item__col-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+
+.item__col-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--purple-500);
+  opacity: 0.6;
+}
+
 .item__rotate-handle {
   position: absolute;
   width: 18px; height: 18px;
@@ -483,6 +507,11 @@ body {
   padding: 4px 6px;
 }
 
+.prop-row input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--purple-500);
+}
+
 .align-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -528,9 +557,14 @@ body {
   z-index: 100;
 }
 
-.modal-close {
+.modal-actions {
   position: absolute;
   top: 24px; right: 32px;
+  display: flex;
+  gap: 8px;
+}
+
+.modal-btn {
   background: var(--bg-glass);
   border: 1px solid var(--border-glass);
   color: var(--text-primary);
@@ -539,3 +573,5 @@ body {
   cursor: pointer;
   font-size: 13px;
 }
+
+.modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }

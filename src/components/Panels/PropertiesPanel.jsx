@@ -176,6 +176,64 @@ function AlignmentControls({ item }) {
   );
 }
 
+// Table-only controls (per the elementCatalog.js type key, gated to that
+// one item type, not generalized into the generic item panels above) —
+// header row styling, row borders/shading, corner radius. Column widths
+// are dragged directly on the canvas (the divider handles in
+// CanvasItem.jsx); this just points that out, there's no width input here.
+function TableProperties({ item }) {
+  const { updateItem } = useEditor();
+  const patch = (p) => updateItem(item.id, p);
+  const headerWeights = fontFamilyById(item.fontFamily).weights;
+
+  return (
+    <>
+      <div className="panel__section-title">Table — Header row</div>
+      <div className="prop-row">
+        <label>Background</label>
+        <input type="color" value={item.headerBg || '#faf9f6'} onChange={(e) => patch({ headerBg: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Text color</label>
+        <input type="color" value={item.headerTextColor || '#262420'} onChange={(e) => patch({ headerTextColor: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Weight</label>
+        <select value={item.headerFontWeight || headerWeights[headerWeights.length - 1]} onChange={(e) => patch({ headerFontWeight: Number(e.target.value) })}>
+          {headerWeights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
+        </select>
+      </div>
+
+      <div className="panel__section-title">Table — Body rows</div>
+      <div className="prop-row">
+        <label>Row border color</label>
+        <input type="color" value={item.rowBorderColor || '#e5e1d6'} onChange={(e) => patch({ rowBorderColor: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Row border width</label>
+        <input type="range" min="0" max="3" step="0.5" value={item.rowBorderWidth ?? 0.5} onChange={(e) => patch({ rowBorderWidth: Number(e.target.value) })} />
+      </div>
+      <div className="prop-row">
+        <label>Alternating shading</label>
+        <input type="checkbox" checked={!!item.altRowShading} onChange={(e) => patch({ altRowShading: e.target.checked })} />
+      </div>
+      {item.altRowShading && (
+        <div className="prop-row">
+          <label>Shading color</label>
+          <input type="color" value={item.altRowColor || '#f5f3ee'} onChange={(e) => patch({ altRowColor: e.target.value })} />
+        </div>
+      )}
+
+      <div className="panel__section-title">Table — Shape</div>
+      <div className="prop-row">
+        <label>Corner radius</label>
+        <input type="range" min="0" max="24" value={item.cornerRadius ?? 4} onChange={(e) => patch({ cornerRadius: Number(e.target.value) })} />
+      </div>
+      <p className="empty-hint">Drag the thin dividers on the table itself to resize individual columns.</p>
+    </>
+  );
+}
+
 function PageProperties() {
   const { template, updatePageBackground } = useEditor();
 
@@ -247,7 +305,12 @@ export default function PropertiesPanel() {
       ) : (
         <>
           {selectedItems.length > 0 && kinds.size === 1 && kinds.has('content') && (
-            <ContentProperties items={selectedItems} />
+            <>
+              <ContentProperties items={selectedItems} />
+              {selectedItems.length === 1 && selectedItems[0].type === 'itemsTable' && (
+                <TableProperties item={selectedItems[0]} />
+              )}
+            </>
           )}
           {selectedItems.length > 0 && kinds.size === 1 && kinds.has('shape') && (
             <ShapeProperties items={selectedItems} />

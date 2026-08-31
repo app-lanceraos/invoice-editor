@@ -3,7 +3,16 @@ import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
 import { fontFamilyCSS } from '../../data/fonts';
-import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, computeGuides } from '../../utils/geometry';
+import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, computeGuides, rotateVector } from '../../utils/geometry';
+
+// Table columns default to equal shares of the table's width; stored as
+// percentages (summing to 100) rather than px, so they stay meaningful
+// regardless of how the table itself gets resized/scaled as a whole.
+function defaultColumnWidths(count) {
+  return Array(count).fill(100 / count);
+}
+
+const MIN_COLUMN_PCT = 6;
 
 function partInlineStyle(item, part, fallbackColor, fallbackWeight) {
   const s = (item && item[part]) || {};
@@ -156,23 +165,60 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
           </div>
         </div>
       );
-    case 'table':
+    case 'table': {
       // Font family/weight applied directly per th/td rather than on the
       // outer frame: a `<th>`'s own browser-default bold would otherwise
       // beat an inherited weight regardless of where that weight came
       // from, so th needs its own explicit (overridable) bold default.
+      // Column widths (item.columnWidths, dragged via the column-divider
+      // handles in CanvasItem) are independent of the outer 8-point
+      // resize/scale — a redistribution of the SAME total width, not a
+      // change to it.
+      const widths = item.columnWidths || defaultColumnWidths(data.columns.length);
       return (
         <table className="item__table">
           <thead>
-            <tr>{data.columns.map((c) => <th key={c} style={fontStyle(700)}>{c}</th>)}</tr>
+            <tr>
+              {data.columns.map((c, j) => (
+                <th
+                  key={c}
+                  style={{
+                    width: `${widths[j]}%`,
+                    fontFamily: fontFamilyCSS(item.fontFamily),
+                    fontWeight: item.headerFontWeight || item.fontWeight || 700,
+                    background: item.headerBg,
+                    color: item.headerTextColor,
+                  }}
+                >
+                  {c}
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody>
             {data.rows.map((row, i) => (
-              <tr key={i}>{row.map((cell, j) => <td key={j} style={fontStyle()}>{cell}</td>)}</tr>
+              <tr key={i} style={item.altRowShading && i % 2 === 1 ? { background: item.altRowColor || '#f5f3ee' } : undefined}>
+                {row.map((cell, j) => (
+                  <td
+                    key={j}
+                    style={{
+                      width: `${widths[j]}%`,
+                      ...fontStyle(),
+                      borderBottom:
+                        item.rowBorderWidth !== undefined
+                          ? `${item.rowBorderWidth}px solid ${item.rowBorderColor || '#e5e1d6'}`
+                          : undefined,
+                    }}
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
             ))}
           </tbody>
         </table>
       );
+    }
     default:
       return null;
   }
@@ -370,15 +416,55 @@ export default function CanvasItem({ item }) {
     setSelection({ ids: [item.id], part: { id: item.id, key: part } });
   };
 
+  // Drags one column-boundary divider — redistributes width between just
+  // the two columns on either side of it, every other column and the
+  // table's own total width/height (the outer 8-point resize) untouched.
+  // Uses `live.columnWidths` (merged into `current` below) the same
+  // one-undo-step-per-gesture way position/size do.
+  const beginColumnResize = (e, colIndex) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const numCols = def.render().columns.length;
+    const startWidths = item.columnWidths || defaultColumnWidths(numCols);
+    const startMouse = { x: e.clientX, y: e.clientY };
+    const rotation = item.rotation || 0;
+    let finalWidths = null;
+
+    const onMove = (ev) => {
+      draggedRef.current = true;
+      const local = rotateVector(ev.clientX - startMouse.x, ev.clientY - startMouse.y, -rotation);
+      const deltaPct = (local.x / item.width) * 100;
+      const widths = [...startWidths];
+      let a = startWidths[colIndex] + deltaPct;
+      let b = startWidths[colIndex + 1] - deltaPct;
+      if (a < MIN_COLUMN_PCT) { b -= MIN_COLUMN_PCT - a; a = MIN_COLUMN_PCT; }
+      if (b < MIN_COLUMN_PCT) { a -= MIN_COLUMN_PCT - b; b = MIN_COLUMN_PCT; }
+      widths[colIndex] = a;
+      widths[colIndex + 1] = b;
+      finalWidths = widths;
+      setLive({ columnWidths: widths });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (finalWidths) updateItem(item.id, { columnWidths: finalWidths });
+      setLive(null);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   // The selection outline (`.item--selected::after`) uses border-radius:
   // inherit, so the frame needs to carry the same radius as what's
-  // actually rendered inside it — a plain 4px softening for content, the
-  // shape's own radius (including the ellipse/line special cases) for
-  // shapes — otherwise a round shape would get a square selection box.
+  // actually rendered inside it — a plain 4px softening for content
+  // (overridable per-item, exposed for the table's own dedicated corner-
+  // radius control), the shape's own radius (including the ellipse/line
+  // special cases) for shapes — otherwise a round shape would get a
+  // square selection box.
   const frameStyle =
     item.kind === 'content'
       ? {
-          borderRadius: 4,
+          borderRadius: item.cornerRadius ?? 4,
           borderColor: item.borderColor,
           borderWidth: item.borderWidth ? `${item.borderWidth}px` : undefined,
           borderStyle: item.borderWidth ? 'solid' : undefined,
@@ -409,9 +495,25 @@ export default function CanvasItem({ item }) {
         {item.kind === 'shape' ? (
           <ShapeBody item={item} />
         ) : (
-          <ContentBody item={item} isPartSelected={isPartSelected} onSelectPart={handlePartClick} />
+          <ContentBody item={current} isPartSelected={isPartSelected} onSelectPart={handlePartClick} />
         )}
       </div>
+
+      {isWholeSelected && !item.locked && def?.variant === 'table' && (() => {
+        const widths = current.columnWidths || defaultColumnWidths(def.render().columns.length);
+        let cumulative = 0;
+        return widths.slice(0, -1).map((w, i) => {
+          cumulative += w;
+          return (
+            <div
+              key={i}
+              className="item__col-divider"
+              style={{ left: `${cumulative}%` }}
+              onMouseDown={(e) => beginColumnResize(e, i)}
+            />
+          );
+        });
+      })()}
 
       {isWholeSelected && !item.locked && (
         <>

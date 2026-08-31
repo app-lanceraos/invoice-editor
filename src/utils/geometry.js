@@ -17,7 +17,7 @@ export function getItemBounds(item, page) {
 }
 
 // Rotate a vector (dx,dy) by `degrees` around the origin.
-function rotateVector(dx, dy, degrees) {
+export function rotateVector(dx, dy, degrees) {
   const rad = (degrees * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
