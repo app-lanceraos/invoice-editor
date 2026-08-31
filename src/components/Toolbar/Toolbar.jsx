@@ -5,11 +5,19 @@ import { LogoSVG, WordmarkSVG } from '../Brand';
 export default function Toolbar({ onPreview }) {
   const {
     canUndo, canRedo, undo, redo, runSave,
-    selection, deleteItems, duplicateItems, groupItems,
+    selection, deleteItems, deleteBlockLine, duplicateItems, groupItems,
   } = useEditor();
 
   const hasSelection = selection.ids.length > 0;
   const canGroup = selection.ids.length >= 2;
+
+  const handleDelete = () => {
+    if (selection.part && selection.ids.length === 1) {
+      deleteBlockLine(selection.ids[0], selection.part.key);
+    } else {
+      deleteItems(selection.ids);
+    }
+  };
 
   return (
     <div className="toolbar">
@@ -33,7 +41,7 @@ export default function Toolbar({ onPreview }) {
         Duplicate <span className="tbtn__key">⌘D</span>
       </button>
 
-      <button className="tbtn" disabled={!hasSelection} onClick={() => deleteItems(selection.ids)}>
+      <button className="tbtn" disabled={!hasSelection} onClick={handleDelete}>
         Delete <span className="tbtn__key">Del</span>
       </button>
 

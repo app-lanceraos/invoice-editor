@@ -1,3 +1,21 @@
+import { PAGE_PADDING } from '../data/initialState';
+
+// The valid position/size envelope for an item: shapes may sit flush
+// against the true page edge (0/page.width/page.height — required for the
+// rail behavior), content items must stay at least PAGE_PADDING away from
+// every edge.
+export function getItemBounds(item, page) {
+  if (item.kind === 'shape') {
+    return { minX: 0, maxX: page.width, minY: 0, maxY: page.height };
+  }
+  return {
+    minX: PAGE_PADDING,
+    maxX: page.width - PAGE_PADDING,
+    minY: PAGE_PADDING,
+    maxY: page.height - PAGE_PADDING,
+  };
+}
+
 // Rotate a vector (dx,dy) by `degrees` around the origin.
 function rotateVector(dx, dy, degrees) {
   const rad = (degrees * Math.PI) / 180;
@@ -118,54 +136,56 @@ export function snapAxis(pos, size, otherEdges, tolerance = 4) {
 }
 
 // Hard boundary constraint for a MOVE: clamp a box's position so it never
-// leaves [0,page.width]x[0,page.height], while still allowing it to sit
-// exactly flush against an edge (needed for the existing edge-rail shape
-// behavior). Also reports which edges the (clamped) box is now touching,
-// so the caller can drive an edge-contact highlight. Width/height don't
-// change here — a move only ever slides x/y.
-export function clampToPage(box, page) {
-  const width = Math.min(box.width, page.width);
-  const height = Math.min(box.height, page.height);
-  const x = Math.max(0, Math.min(box.x, page.width - width));
-  const y = Math.max(0, Math.min(box.y, page.height - height));
+// leaves `bounds` (see getItemBounds — [0,page.width] for a shape,
+// [PAGE_PADDING, page.width-PAGE_PADDING] for a content item, same on Y),
+// while still allowing it to sit exactly flush against whichever boundary
+// applies to this item. Also reports which edges the (clamped) box is now
+// touching, so the caller can drive an edge-contact highlight. Width/height
+// don't change here — a move only ever slides x/y.
+export function clampToPage(box, bounds) {
+  const width = Math.min(box.width, bounds.maxX - bounds.minX);
+  const height = Math.min(box.height, bounds.maxY - bounds.minY);
+  const x = Math.max(bounds.minX, Math.min(box.x, bounds.maxX - width));
+  const y = Math.max(bounds.minY, Math.min(box.y, bounds.maxY - height));
   return {
     x,
     y,
     width,
     height,
     edges: {
-      left: x <= 0.5,
-      right: x + width >= page.width - 0.5,
-      top: y <= 0.5,
-      bottom: y + height >= page.height - 0.5,
+      left: x <= bounds.minX + 0.5,
+      right: x + width >= bounds.maxX - 0.5,
+      top: y <= bounds.minY + 0.5,
+      bottom: y + height >= bounds.maxY - 0.5,
     },
   };
 }
 
-// Hard boundary constraint for a RESIZE. Unlike a move, a resize has a
-// FIXED edge (whichever one the dragged handle isn't on — see
-// resizeRotatedBox) that must never shift; only the growing edge's extent
-// gets capped at the page boundary. Using the position-only clampToPage
-// here would incorrectly slide the fixed edge inward instead, breaking
-// the "opposite corner/edge stays put" contract of a resize gesture.
-export function clampResizeToPage(box, handle, page, minSize = 16) {
+// Hard boundary constraint for a RESIZE, against the same kind-aware
+// `bounds`. Unlike a move, a resize has a FIXED edge (whichever one the
+// dragged handle isn't on — see resizeRotatedBox) that must never shift;
+// only the growing edge's extent gets capped at the boundary. Using the
+// position-only clampToPage here would incorrectly slide the fixed edge
+// inward instead, breaking the "opposite corner/edge stays put" contract
+// of a resize gesture.
+export function clampResizeToPage(box, handle, bounds, minSize = 16) {
   let { x, y, width, height } = box;
 
   if (handle.fx === 1) {
-    if (x < 0) { width += x; x = 0; }
-    width = Math.max(minSize, Math.min(width, page.width - x));
+    if (x < bounds.minX) { width += x - bounds.minX; x = bounds.minX; }
+    width = Math.max(minSize, Math.min(width, bounds.maxX - x));
   } else if (handle.fx === 0) {
     const right = x + width;
-    x = Math.max(0, x);
+    x = Math.max(bounds.minX, x);
     width = Math.max(minSize, right - x);
   }
 
   if (handle.fy === 1) {
-    if (y < 0) { height += y; y = 0; }
-    height = Math.max(minSize, Math.min(height, page.height - y));
+    if (y < bounds.minY) { height += y - bounds.minY; y = bounds.minY; }
+    height = Math.max(minSize, Math.min(height, bounds.maxY - y));
   } else if (handle.fy === 0) {
     const bottom = y + height;
-    y = Math.max(0, y);
+    y = Math.max(bounds.minY, y);
     height = Math.max(minSize, bottom - y);
   }
 
@@ -175,10 +195,10 @@ export function clampResizeToPage(box, handle, page, minSize = 16) {
     width,
     height,
     edges: {
-      left: x <= 0.5,
-      right: x + width >= page.width - 0.5,
-      top: y <= 0.5,
-      bottom: y + height >= page.height - 0.5,
+      left: x <= bounds.minX + 0.5,
+      right: x + width >= bounds.maxX - 0.5,
+      top: y <= bounds.minY + 0.5,
+      bottom: y + height >= bounds.maxY - 0.5,
     },
   };
 }

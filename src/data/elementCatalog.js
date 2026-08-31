@@ -81,13 +81,27 @@ export const ELEMENT_TYPES = {
     defaultBox: { x: 508, y: 36, width: 150, height: 18 },
     render: () => 'Due Date: 15-01-2026',
   },
+  // block-variant `render()` returns { title, lines }: `title` is the
+  // heading (never individually deletable), `lines` is the body, each with
+  // its own `key` (used for per-line selection/style, see item[line.key]
+  // in CanvasItem.jsx) and `required` (blocks that one line from being
+  // deleted the same way a required top-level item is protected — an
+  // item's currently-hidden optional lines live in item.hiddenLines).
   billTo: {
     label: 'Bill to',
     required: true,
     defaultOn: true,
     variant: 'block',
     defaultBox: { x: 32, y: 100, width: 170, height: 95 },
-    render: () => ['Bill To', 'Client Name', 'Client Company', '123 Client Street', 'client@email.com'],
+    render: () => ({
+      title: { key: 'title', label: 'Title', text: 'Bill To' },
+      lines: [
+        { key: 'clientName', label: 'Client name', text: 'Client Name', required: true },
+        { key: 'clientCompany', label: 'Company', text: 'Client Company', required: false },
+        { key: 'address', label: 'Address', text: '123 Client Street', required: false },
+        { key: 'email', label: 'Email', text: 'client@email.com', required: false },
+      ],
+    }),
   },
   from: {
     label: 'From',
@@ -95,7 +109,14 @@ export const ELEMENT_TYPES = {
     defaultOn: true,
     variant: 'block',
     defaultBox: { x: 222, y: 100, width: 170, height: 95 },
-    render: () => ['From', FROM_BUSINESS_NAME, '456 Business Ave', FROM_EMAIL],
+    render: () => ({
+      title: { key: 'title', label: 'Title', text: 'From' },
+      lines: [
+        { key: 'businessName', label: 'Business name', text: FROM_BUSINESS_NAME, required: true },
+        { key: 'address', label: 'Address', text: '456 Business Ave', required: false },
+        { key: 'email', label: 'Email', text: FROM_EMAIL, required: true },
+      ],
+    }),
   },
   itemsTable: {
     label: 'Items table',
@@ -159,7 +180,15 @@ export const ELEMENT_TYPES = {
     defaultOn: true,
     variant: 'block',
     defaultBox: { x: 32, y: 920, width: 340, height: 50 },
-    render: () => ['Notes', 'Thank you for your business. Please reach out with any questions.'],
+    // A single-line block: that one line is `required` (not individually
+    // removable) since deleting it would just leave an empty card behind —
+    // removing the whole thing is what the top-level toggle is for.
+    render: () => ({
+      title: { key: 'title', label: 'Title', text: 'Notes' },
+      lines: [
+        { key: 'body', label: 'Note', text: 'Thank you for your business. Please reach out with any questions.', required: true },
+      ],
+    }),
   },
   terms: {
     label: 'Terms',
@@ -167,7 +196,12 @@ export const ELEMENT_TYPES = {
     defaultOn: false,
     variant: 'block',
     defaultBox: { x: 32, y: 980, width: 340, height: 45 },
-    render: () => ['Terms', 'Payment due within 14 days of the issue date.'],
+    render: () => ({
+      title: { key: 'title', label: 'Title', text: 'Terms' },
+      lines: [
+        { key: 'body', label: 'Terms', text: 'Payment due within 14 days of the issue date.', required: true },
+      ],
+    }),
   },
   paymentMethods: {
     label: 'Payment methods',
@@ -175,7 +209,13 @@ export const ELEMENT_TYPES = {
     defaultOn: true,
     variant: 'block',
     defaultBox: { x: 400, y: 920, width: 340, height: 60 },
-    render: () => ['Payment methods', 'Bank transfer — Example Bank ••1234', 'Payoneer — pay@business.com'],
+    render: () => ({
+      title: { key: 'title', label: 'Title', text: 'Payment methods' },
+      lines: [
+        { key: 'bankTransfer', label: 'Bank transfer', text: 'Bank transfer — Example Bank ••1234', required: false },
+        { key: 'payoneer', label: 'Payoneer', text: 'Payoneer — pay@business.com', required: false },
+      ],
+    }),
   },
   payOnline: {
     label: 'Pay online',

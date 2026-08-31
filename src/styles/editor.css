@@ -233,19 +233,19 @@ body {
 .item__text {
   box-sizing: border-box;
   width: 100%; height: 100%;
-  padding: 3px 5px;
+  padding: 2px 4px;
   font-size: 10px;
 }
 
 .item__block {
   box-sizing: border-box;
   width: 100%; height: 100%;
-  padding: 3px 5px;
+  padding: 2px 4px;
   display: flex;
   flex-direction: column;
 }
 
-.item__block-title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 3px; }
+.item__block-title { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px; }
 .item__block-line { font-size: 9px; }
 
 .item__block-title--selected,
@@ -265,12 +265,22 @@ body {
 .item__row {
   box-sizing: border-box;
   width: 100%; height: 100%;
-  padding: 3px 5px;
+  padding: 2px 4px;
   display: flex; align-items: center; justify-content: space-between; font-size: 9px;
 }
+/* Kept at 4px rather than tightened alongside the rest — this is the gap
+   below the divider rule, not container padding, and needs to stay clear
+   of the line above it. */
 .item__row--strong { font-weight: 700; font-size: 11px; border-top: 1px solid #262420; padding-top: 4px; }
 
-.item__table { width: 100%; height: 100%; border-collapse: collapse; font-size: 8.5px; }
+/* Already had no padding of its own before this pass — already the
+   snuggest it can be, nothing to reduce here. */
+.item__table {
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  border-collapse: collapse;
+  font-size: 8.5px;
+}
 .item__table th { text-align: left; font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid #262420; padding-bottom: 4px; }
 .item__table td { padding: 4px 0; border-bottom: 0.5px solid #e5e1d6; }
 .item__table th:not(:first-child), .item__table td:not(:first-child) { text-align: right; }
@@ -287,7 +297,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  padding: 2px;
 }
 
 .item__qr-wrap--selected {
@@ -410,6 +420,18 @@ body {
 .prop-row input[type="number"] {
   width: 110px;
   accent-color: var(--purple-500);
+}
+
+.align-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.align-grid .tbtn {
+  justify-content: center;
+  padding: 6px 4px;
 }
 
 .empty-hint {

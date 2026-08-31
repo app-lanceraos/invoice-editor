@@ -1,20 +1,29 @@
 import React from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
+import { getItemBounds } from '../../utils/geometry';
 
 // Variants whose text is split into an independently-styleable title/body
 // (see item.title / item.body) — kept in sync with CanvasItem.
 const SUB_PART_VARIANTS = new Set(['block', 'qr']);
 
 function PartProperties({ item, part }) {
-  const { updateItemPart } = useEditor();
+  const { updateItemPart, deleteBlockLine } = useEditor();
+  const def = ELEMENT_TYPES[item.type];
+  const isTitle = part === 'title';
+  // For 'qr', the only non-title part is its image body (key 'body'),
+  // which has no catalog line entry to look up — treat it as a fixed,
+  // non-deletable part alongside the title.
+  const line = def.variant === 'block' ? def.render().lines.find((l) => l.key === part) : null;
+  const partLabel = isTitle ? 'Title' : line?.label || 'Body';
+  const isDeletable = !isTitle && def.variant === 'block' && line && !line.required;
   const partStyle = item[part] || {};
-  const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
+  const defaultColor = isTitle ? '#a2896b' : '#55524a';
 
   return (
     <>
       <div className="panel__section-title">
-        {ELEMENT_TYPES[item.type].label} — {part === 'title' ? 'Title' : 'Body'}
+        {def.label} — {partLabel}
       </div>
       <div className="prop-row">
         <label>Text color</label>
@@ -32,6 +41,14 @@ function PartProperties({ item, part }) {
         <label>Border width</label>
         <input type="range" min="0" max="6" value={partStyle.borderWidth || 0} onChange={(e) => updateItemPart(item.id, part, { borderWidth: Number(e.target.value) })} />
       </div>
+      {isDeletable && (
+        <button className="tbtn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => deleteBlockLine(item.id, part)}>
+          Delete this line
+        </button>
+      )}
+      {!isDeletable && !isTitle && def.variant === 'block' && (
+        <p className="empty-hint">This line is required and can't be removed.</p>
+      )}
     </>
   );
 }
@@ -64,6 +81,41 @@ function ContentProperties({ items }) {
       <div className="prop-row">
         <label>Border width</label>
         <input type="range" min="0" max="6" value={first.borderWidth || 0} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
+      </div>
+    </>
+  );
+}
+
+// Repositions the item against the PAGE's own width/height — never
+// relative to other items — respecting the same kind-aware boundary each
+// item already can't cross (getItemBounds: true edge for a shape,
+// PAGE_PADDING inset for content), so "Align Left" can't itself produce a
+// position the boundary clamp would immediately have to correct.
+function AlignmentControls({ item }) {
+  const { template, updateItem } = useEditor();
+  const bounds = getItemBounds(item, template.page);
+
+  const alignX = (mode) => {
+    const x =
+      mode === 'left' ? bounds.minX : mode === 'right' ? bounds.maxX - item.width : (bounds.minX + bounds.maxX - item.width) / 2;
+    updateItem(item.id, { x });
+  };
+  const alignY = (mode) => {
+    const y =
+      mode === 'top' ? bounds.minY : mode === 'bottom' ? bounds.maxY - item.height : (bounds.minY + bounds.maxY - item.height) / 2;
+    updateItem(item.id, { y });
+  };
+
+  return (
+    <>
+      <div className="panel__section-title">Align</div>
+      <div className="align-grid">
+        <button className="tbtn" onClick={() => alignX('left')}>Left</button>
+        <button className="tbtn" onClick={() => alignX('center')}>Center</button>
+        <button className="tbtn" onClick={() => alignX('right')}>Right</button>
+        <button className="tbtn" onClick={() => alignY('top')}>Top</button>
+        <button className="tbtn" onClick={() => alignY('middle')}>Middle</button>
+        <button className="tbtn" onClick={() => alignY('bottom')}>Bottom</button>
       </div>
     </>
   );
@@ -130,9 +182,11 @@ export default function PropertiesPanel() {
   const selectedItems = template.items.filter((i) => selection.ids.includes(i.id));
   const partItem = selection.part ? template.items.find((i) => i.id === selection.part.id) : null;
   const kinds = new Set(selectedItems.map((i) => i.kind));
+  const singleItem = selectedItems.length === 1 ? selectedItems[0] : null;
 
   return (
     <div className="panel panel--right">
+      {singleItem && !singleItem.locked && <AlignmentControls item={singleItem} />}
       {partItem && SUB_PART_VARIANTS.has(ELEMENT_TYPES[partItem.type].variant) ? (
         <PartProperties item={partItem} part={selection.part.key} />
       ) : (

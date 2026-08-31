@@ -114,6 +114,28 @@ export function EditorProvider({ children }) {
     [template, commit, canDeleteItem]
   );
 
+  // Removes one optional line from a block-variant item's rendered body
+  // (title is never a removable line) — blocked the same way deleteItems
+  // blocks a required top-level item, just at line granularity. The
+  // item's currently-hidden lines are tracked as a plain list on the
+  // item itself, alongside its other flat props.
+  const deleteBlockLine = useCallback(
+    (itemId, lineKey) => {
+      if (lineKey === 'title') return;
+      const item = itemsById.get(itemId);
+      if (!item || item.kind !== 'content') return;
+      const def = ELEMENT_TYPES[item.type];
+      if (def.variant !== 'block') return;
+      const line = def.render().lines.find((l) => l.key === lineKey);
+      if (!line || line.required) return;
+      if ((item.hiddenLines || []).includes(lineKey)) return;
+      const hiddenLines = [...(item.hiddenLines || []), lineKey];
+      commit({ ...template, items: template.items.map((i) => (i.id === itemId ? { ...i, hiddenLines } : i)) });
+      setSelection({ ids: [itemId], part: null });
+    },
+    [template, commit, itemsById]
+  );
+
   const duplicateItems = useCallback(
     (ids) => {
       const source = template.items.filter((i) => ids.includes(i.id) && !i.locked);
@@ -225,6 +247,7 @@ export function EditorProvider({ children }) {
     updateItems,
     updateItemPart,
     deleteItems,
+    deleteBlockLine,
     duplicateItems,
     addItemFromClipboard,
     addShape,

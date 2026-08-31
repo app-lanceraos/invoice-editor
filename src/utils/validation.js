@@ -12,12 +12,16 @@ export function validateTemplate(template, railInsets) {
     if (!present) issues.push({ level: 'error', message: `Required element "${def.label}" is missing.` });
   });
 
-  // 2. optional block enabled but structurally empty (paymentMethods with no
-  //    method lines would be an example in a real data-backed build — with
-  //    fixed placeholder content this mostly guards future real-data wiring)
-  const paymentOn = template.items.some((i) => i.kind === 'content' && i.type === 'paymentMethods');
-  if (paymentOn && ELEMENT_TYPES.paymentMethods.render().length <= 1) {
-    issues.push({ level: 'warning', message: 'Payment methods block is enabled but has no methods.' });
+  // 2. optional block enabled but structurally empty — genuinely reachable
+  //    now that individual optional lines can be deleted per-item (see
+  //    item.hiddenLines), not just theoretical placeholder-content guarding.
+  const paymentItem = template.items.find((i) => i.kind === 'content' && i.type === 'paymentMethods');
+  if (paymentItem) {
+    const hidden = paymentItem.hiddenLines || [];
+    const visibleCount = ELEMENT_TYPES.paymentMethods.render().lines.filter((l) => !hidden.includes(l.key)).length;
+    if (visibleCount === 0) {
+      issues.push({ level: 'warning', message: 'Payment methods block is enabled but has no methods.' });
+    }
   }
 
   // 3. rail thickness eating too much safe area

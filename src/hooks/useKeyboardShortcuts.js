@@ -6,7 +6,7 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   const {
     template, selection, setSelection,
     undo, redo, runSave,
-    deleteItems, duplicateItems, groupItems,
+    deleteItems, deleteBlockLine, duplicateItems, groupItems,
     addItemFromClipboard,
   } = useEditor();
 
@@ -49,12 +49,16 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       if (e.key === 'Escape') { setSelection({ ids: [], part: null }); return; }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selection.ids.length > 0) deleteItems(selection.ids);
+        if (selection.part && selection.ids.length === 1) {
+          deleteBlockLine(selection.ids[0], selection.part.key);
+        } else if (selection.ids.length > 0) {
+          deleteItems(selection.ids);
+        }
         return;
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [template, selection, undo, redo, runSave, deleteItems, duplicateItems, groupItems, setSelection, addItemFromClipboard]);
+  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemFromClipboard]);
 }

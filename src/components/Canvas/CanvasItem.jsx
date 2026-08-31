@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
-import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage } from '../../utils/geometry';
+import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds } from '../../utils/geometry';
 
 function partInlineStyle(item, part, fallbackColor) {
   const s = (item && item[part]) || {};
@@ -29,7 +29,8 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       return <div className="item__text">{data}</div>;
     case 'block': {
       const titleStyle = partInlineStyle(item, 'title', '#a2896b');
-      const bodyStyle = partInlineStyle(item, 'body', '#55524a');
+      const hidden = item.hiddenLines || [];
+      const visibleLines = data.lines.filter((line) => !hidden.includes(line.key));
       return (
         <div className="item__block">
           <div
@@ -37,16 +38,16 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
             style={titleStyle}
             onClick={(e) => onSelectPart(e, 'title')}
           >
-            {data[0]}
+            {data.title.text}
           </div>
-          {data.slice(1).map((line, i) => (
+          {visibleLines.map((line) => (
             <div
-              className={`item__block-line${isPartSelected('body') ? ' item__block-line--selected' : ''}`}
-              style={bodyStyle}
-              key={i}
-              onClick={(e) => onSelectPart(e, 'body')}
+              className={`item__block-line${isPartSelected(line.key) ? ' item__block-line--selected' : ''}`}
+              style={partInlineStyle(item, line.key, '#55524a')}
+              key={line.key}
+              onClick={(e) => onSelectPart(e, line.key)}
             >
-              {line}
+              {line.text}
             </div>
           ))}
         </div>
@@ -205,11 +206,13 @@ export default function CanvasItem({ item }) {
 
     const start = { x: e.clientX, y: e.clientY, origX: item.x, origY: item.y };
     const others = template.items.filter((i) => i.id !== item.id);
-    // Page edges join every other item's edges as snap candidates — same
-    // ~4px tolerance, so a drag lands flush against the page boundary just
-    // as readily as against a neighboring item (still required for rails).
-    const otherXEdges = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), 0, template.page.width];
-    const otherYEdges = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), 0, template.page.height];
+    const bounds = getItemBounds(item, template.page);
+    // This item's own boundary (true page edge for a shape, PAGE_PADDING
+    // inset for content) joins every other item's edges as snap candidates
+    // — same ~4px tolerance, so a drag lands flush against it just as
+    // readily as against a neighboring item (still required for rails).
+    const otherXEdges = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
+    const otherYEdges = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
     let finalPos = null;
 
     const onMove = (ev) => {
@@ -218,7 +221,7 @@ export default function CanvasItem({ item }) {
       let ny = start.origY + (ev.clientY - start.y);
       nx += snapAxis(nx, item.width, otherXEdges);
       ny += snapAxis(ny, item.height, otherYEdges);
-      const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, template.page);
+      const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, bounds);
       finalPos = { x: clamped.x, y: clamped.y };
       setEdgeHighlight(clamped.edges);
       setLive(finalPos);
@@ -239,8 +242,9 @@ export default function CanvasItem({ item }) {
     e.preventDefault();
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
-    const pageXEdges = [0, template.page.width];
-    const pageYEdges = [0, template.page.height];
+    const bounds = getItemBounds(item, template.page);
+    const pageXEdges = [bounds.minX, bounds.maxX];
+    const pageYEdges = [bounds.minY, bounds.maxY];
     let finalBox = null;
 
     const onMove = (ev) => {
@@ -268,7 +272,7 @@ export default function CanvasItem({ item }) {
         raw.height -= delta;
       }
 
-      const clamped = clampResizeToPage(raw, handle, template.page);
+      const clamped = clampResizeToPage(raw, handle, bounds);
       finalBox = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height };
       setEdgeHighlight(clamped.edges);
       setLive(finalBox);

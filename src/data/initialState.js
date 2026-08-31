@@ -1,5 +1,10 @@
 import { ELEMENT_TYPES, createContentItem } from './elementCatalog';
 
+// Minimum distance a content item is ever allowed from a page edge (move or
+// resize) — shapes ignore this and can still sit flush at the true edge,
+// since that's required for the rail behavior. Easy to tune.
+export const PAGE_PADDING = 24;
+
 // Build the starting item list: every content type with defaultOn:true gets
 // one instance, in catalog order. Shapes start empty — the user adds those
 // deliberately from the shape library.
