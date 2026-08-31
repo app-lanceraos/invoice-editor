@@ -325,6 +325,32 @@ function TableProperties({ item }) {
         </div>
       )}
 
+      <div className="panel__section-title">Table — Columns</div>
+      <div className="prop-row">
+        <label>Cell padding</label>
+        <input type="range" min="0" max="16" value={item.cellPadding ?? 4} onChange={(e) => patch({ cellPadding: Number(e.target.value) })} />
+      </div>
+      {ELEMENT_TYPES[item.type].render().columns.map((col, j) => {
+        const align = item.columnAlign?.[j] || (j === 0 ? 'left' : 'right');
+        const setAlign = (v) => {
+          const next = [...(item.columnAlign || ELEMENT_TYPES[item.type].render().columns.map((_, i) => (i === 0 ? 'left' : 'right')))];
+          next[j] = v;
+          patch({ columnAlign: next });
+        };
+        return (
+          <div className="prop-row" key={col}>
+            <label>{col}</label>
+            <div className="align-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              {['left', 'center', 'right'].map((v) => (
+                <button key={v} className="tbtn" style={{ fontWeight: align === v ? 700 : 400 }} onClick={() => setAlign(v)}>
+                  {v[0].toUpperCase() + v.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
       <div className="panel__section-title">Table — Shape</div>
       <div className="prop-row">
         <label>Corner radius</label>

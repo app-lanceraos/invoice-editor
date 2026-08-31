@@ -232,6 +232,146 @@ export function computeGuides(box, others) {
   return { vertical, horizontal, labels };
 }
 
+// ---------- Content-vs-content collision (Prompt 12) ----------
+//
+// Content items may never overlap. Each item claims a 1px margin on every
+// side that no OTHER item's own box may cross, so when two items are as
+// close as the constraint allows, there's 1px (mover) + 1px (neighbor) =
+// 2px of real empty space between their actual borders. Shapes are exempt
+// — same rail exception as the Prompt 5 edge-padding rule, since a
+// decorative rail is meant to sit flush against/behind content, not be
+// pushed away by it.
+export const COLLISION_MARGIN = 1;
+
+// The axis-aligned box that encloses a (possibly rotated) item — two
+// rotated items can visually overlap well before their unrotated x/y/
+// width/height boxes would, so collision is always tested against this,
+// never the raw box. Rotation pivots around the box's own center, same
+// convention resizeRotatedBox already uses.
+export function rotatedBoundingBox(box) {
+  const { x, y, width, height, rotation = 0 } = box;
+  if (!rotation) return { minX: x, maxX: x + width, minY: y, maxY: y + height };
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  const corners = [
+    [-width / 2, -height / 2],
+    [width / 2, -height / 2],
+    [width / 2, height / 2],
+    [-width / 2, height / 2],
+  ].map(([lx, ly]) => rotateVector(lx, ly, rotation));
+  const xs = corners.map((c) => cx + c.x);
+  const ys = corners.map((c) => cy + c.y);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+// Precomputes every blocking neighbor's rotated bounding box, each already
+// expanded by its own margin — the one-time-per-gesture setup step, so the
+// per-frame resolve functions below just do plain interval math.
+export function collisionBoxes(items, margin = COLLISION_MARGIN) {
+  return items.map((item) => {
+    const bbox = rotatedBoundingBox(item);
+    return { minX: bbox.minX - margin, maxX: bbox.maxX + margin, minY: bbox.minY - margin, maxY: bbox.maxY + margin };
+  });
+}
+
+function boxesOverlap(a, b) {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
+
+// Hard, per-axis contact resolution for a MOVE, in the standard AABB
+// "slide along the wall" style: X is resolved first (using the last valid
+// Y as the reference row), then Y is resolved using the just-resolved X as
+// the reference column — so a diagonal drag into a neighbor's edge stops
+// the blocked axis at contact while the other axis keeps tracking the
+// mouse. `lastValid` must be a position this same item was already
+// legally at (no overlap) — the gesture's gradually-updated last-good
+// frame, not the drag's original start, so movement stays continuous.
+export function resolveMoveCollision(lastValid, desired, size, rotation, neighborBoxes, margin = COLLISION_MARGIN) {
+  if (!neighborBoxes.length) return { x: desired.x, y: desired.y };
+  // Local (pre-translation) bbox offsets — rotation/size don't change
+  // during a move, so this is the same shape at every (x, y), just shifted.
+  const local = rotatedBoundingBox({ x: 0, y: 0, width: size.width, height: size.height, rotation });
+
+  let x = desired.x;
+  const rowMinY = lastValid.y + local.minY - margin;
+  const rowMaxY = lastValid.y + local.maxY + margin;
+  if (desired.x > lastValid.x) {
+    let limit = Infinity;
+    neighborBoxes.forEach((n) => {
+      // Only a neighbor actually ahead of us (its blocking edge is not
+      // behind where we already validly are) can cap this move — one that
+      // merely happens to share a row/column but sits behind or off to the
+      // side must never drag the limit back past lastValid.
+      const bound = n.minX - local.maxX - margin;
+      if (rowMinY < n.maxY && rowMaxY > n.minY && bound >= lastValid.x) limit = Math.min(limit, bound);
+    });
+    x = Math.max(lastValid.x, Math.min(desired.x, limit));
+  } else if (desired.x < lastValid.x) {
+    let limit = -Infinity;
+    neighborBoxes.forEach((n) => {
+      const bound = n.maxX - local.minX + margin;
+      if (rowMinY < n.maxY && rowMaxY > n.minY && bound <= lastValid.x) limit = Math.max(limit, bound);
+    });
+    x = Math.min(lastValid.x, Math.max(desired.x, limit));
+  }
+
+  let y = desired.y;
+  const colMinX = x + local.minX - margin;
+  const colMaxX = x + local.maxX + margin;
+  if (desired.y > lastValid.y) {
+    let limit = Infinity;
+    neighborBoxes.forEach((n) => {
+      const bound = n.minY - local.maxY - margin;
+      if (colMinX < n.maxX && colMaxX > n.minX && bound >= lastValid.y) limit = Math.min(limit, bound);
+    });
+    y = Math.max(lastValid.y, Math.min(desired.y, limit));
+  } else if (desired.y < lastValid.y) {
+    let limit = -Infinity;
+    neighborBoxes.forEach((n) => {
+      const bound = n.maxY - local.minY + margin;
+      if (colMinX < n.maxX && colMaxX > n.minX && bound <= lastValid.y) limit = Math.max(limit, bound);
+    });
+    y = Math.min(lastValid.y, Math.max(desired.y, limit));
+  }
+
+  return { x, y };
+}
+
+// Hard-stop resolution for a RESIZE: bisects along the straight line from
+// `startBox` (the gesture's fixed, guaranteed-valid starting box — same
+// "never mutated mid-gesture" value clampResizeToPage already uses) to
+// `candidateBox` (this frame's fully snapped/boundary-clamped target).
+// Since a resize only ever moves the dragged handle's own edge/corner
+// (resizeRotatedBox keeps the opposite one fixed), that straight line is
+// exactly the handle's own travel path, rotation included — no separate
+// per-axis logic needed the way move's free-form drag requires.
+export function resolveResizeCollision(startBox, candidateBox, neighborBoxes, margin = COLLISION_MARGIN) {
+  if (!neighborBoxes.length) return candidateBox;
+  const collides = (box) => {
+    const bbox = rotatedBoundingBox(box);
+    const expanded = { minX: bbox.minX - margin, maxX: bbox.maxX + margin, minY: bbox.minY - margin, maxY: bbox.maxY + margin };
+    return neighborBoxes.some((n) => boxesOverlap(expanded, n));
+  };
+  if (!collides(candidateBox)) return candidateBox;
+  if (collides(startBox)) return startBox; // defensive: gesture shouldn't ever start already colliding
+
+  const lerpBox = (t) => ({
+    x: startBox.x + (candidateBox.x - startBox.x) * t,
+    y: startBox.y + (candidateBox.y - startBox.y) * t,
+    width: startBox.width + (candidateBox.width - startBox.width) * t,
+    height: startBox.height + (candidateBox.height - startBox.height) * t,
+    rotation: candidateBox.rotation,
+  });
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const t = (lo + hi) / 2;
+    if (collides(lerpBox(t))) hi = t;
+    else lo = t;
+  }
+  return lerpBox(lo);
+}
+
 // Hard boundary constraint for a MOVE: clamp a box's position so it never
 // leaves `bounds` (see getItemBounds — [0,page.width] for a shape,
 // [PAGE_PADDING, page.width-PAGE_PADDING] for a content item, same on Y),

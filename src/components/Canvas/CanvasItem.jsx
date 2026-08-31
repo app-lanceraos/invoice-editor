@@ -3,7 +3,21 @@ import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
 import { fontFamilyCSS } from '../../data/fonts';
-import { RESIZE_HANDLES, resizeRotatedBox, snapRotation, snapAxis, clampToPage, clampResizeToPage, getItemBounds, getFooterTop, computeGuides, rotateVector } from '../../utils/geometry';
+import {
+  RESIZE_HANDLES,
+  resizeRotatedBox,
+  snapRotation,
+  snapAxis,
+  clampToPage,
+  clampResizeToPage,
+  getItemBounds,
+  getFooterTop,
+  computeGuides,
+  rotateVector,
+  collisionBoxes,
+  resolveMoveCollision,
+  resolveResizeCollision,
+} from '../../utils/geometry';
 
 // Table columns default to equal shares of the table's width; stored as
 // percentages (summing to 100) rather than px, so they stay meaningful
@@ -14,6 +28,13 @@ function defaultColumnWidths(count) {
 
 const MIN_COLUMN_PCT = 6;
 const NOOP = () => {};
+// How far outside the item's own border each resize handle floats —
+// standard design-tool convention (a corner/edge dot hovering just clear
+// of the selection outline, not sitting on top of it).
+const HANDLE_GAP = 8;
+function handleOffset(fx) {
+  return (fx - 0.5) * 2 * HANDLE_GAP;
+}
 
 // Variants whose natural size is text-dependent (font family/weight/size,
 // which lines are hidden, and — for `block`, which wraps — the box's own
@@ -274,6 +295,14 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       // resize/scale — a redistribution of the SAME total width, not a
       // change to it.
       const widths = item.columnWidths || defaultColumnWidths(data.columns.length);
+      // Independent of column WIDTH (item.columnWidths, dragged via the
+      // divider handles) — alignment is purely a text-align choice within
+      // whatever width a column already has, so the two never fight.
+      // Defaults match the standing convention (first column left, the
+      // rest right, e.g. numbers/currency) until a column's own choice
+      // overrides it.
+      const columnAlign = (j) => item.columnAlign?.[j] || (j === 0 ? 'left' : 'right');
+      const cellPadding = item.cellPadding ?? 4;
       return (
         <table className="item__table">
           <thead>
@@ -283,6 +312,8 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
                   key={c}
                   style={{
                     width: `${widths[j]}%`,
+                    textAlign: columnAlign(j),
+                    padding: cellPadding,
                     fontFamily: fontFamilyCSS(item.fontFamily),
                     fontWeight: item.headerFontWeight || item.fontWeight || 700,
                     fontSize: item.headerFontSize || 7,
@@ -303,6 +334,8 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
                     key={j}
                     style={{
                       width: `${widths[j]}%`,
+                      textAlign: columnAlign(j),
+                      padding: cellPadding,
                       ...fontStyle(undefined, 8.5),
                       borderBottom:
                         item.rowBorderWidth !== undefined
@@ -421,18 +454,44 @@ export default function CanvasItem({ item, readOnly = false }) {
     // readily as against a neighboring item (still required for rails).
     const otherXEdges = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
     const otherYEdges = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
+    // Collision is content-vs-content only — shapes stay exempt, same rail
+    // exception as the Prompt 5 edge-padding rule. Neighbor boxes are
+    // static for the duration of this gesture (only one item ever moves at
+    // a time), so they're computed once here rather than every frame.
+    const collisionNeighbors =
+      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content')) : null;
+    let lastValid = { x: item.x, y: item.y };
     let finalPos = null;
 
     const onMove = (ev) => {
       draggedRef.current = true;
       let nx = start.origX + (ev.clientX - start.x);
       let ny = start.origY + (ev.clientY - start.y);
+      // (1) guide/edge snap, (2) page/footer boundary clamp, (3) collision
+      // clamp last — collision is the hardest constraint, so it must win
+      // if it disagrees with a snap; the guide line drawn below reflects
+      // the FINAL (post-collision) position, never a snap that collision
+      // ended up overriding.
       nx += snapAxis(nx, item.width, otherXEdges);
       ny += snapAxis(ny, item.height, otherYEdges);
       const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, bounds);
-      finalPos = { x: clamped.x, y: clamped.y };
+      let fx = clamped.x;
+      let fy = clamped.y;
+      if (collisionNeighbors) {
+        const resolved = resolveMoveCollision(
+          lastValid,
+          { x: fx, y: fy },
+          { width: item.width, height: item.height },
+          item.rotation || 0,
+          collisionNeighbors
+        );
+        fx = resolved.x;
+        fy = resolved.y;
+        lastValid = { x: fx, y: fy };
+      }
+      finalPos = { x: fx, y: fy };
       setEdgeHighlight(clamped.edges);
-      setGuides(computeGuides({ x: clamped.x, y: clamped.y, width: item.width, height: item.height }, others));
+      setGuides(computeGuides({ x: fx, y: fy, width: item.width, height: item.height }, others));
       setLive(finalPos);
     };
     const onUp = () => {
@@ -460,6 +519,8 @@ export default function CanvasItem({ item, readOnly = false }) {
     // as readily as against the page edge.
     const snapXCandidates = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
     const snapYCandidates = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
+    const collisionNeighbors =
+      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content')) : null;
     let finalBox = null;
 
     const onMove = (ev) => {
@@ -488,7 +549,11 @@ export default function CanvasItem({ item, readOnly = false }) {
       }
 
       const clamped = clampResizeToPage(raw, handle, bounds);
-      finalBox = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height };
+      let box = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height, rotation: start.rotation };
+      if (collisionNeighbors) {
+        box = resolveResizeCollision(start, box, collisionNeighbors);
+      }
+      finalBox = { x: box.x, y: box.y, width: box.width, height: box.height };
       setEdgeHighlight(clamped.edges);
       setGuides(computeGuides(finalBox, others));
       setLive(finalBox);
@@ -681,7 +746,11 @@ export default function CanvasItem({ item, readOnly = false }) {
             <div
               key={h.key}
               className="item__resize-handle"
-              style={{ left: `${h.fx * 100}%`, top: `${h.fy * 100}%`, cursor: h.cursor }}
+              style={{
+                left: `calc(${h.fx * 100}% + ${handleOffset(h.fx)}px)`,
+                top: `calc(${h.fy * 100}% + ${handleOffset(h.fy)}px)`,
+                cursor: h.cursor,
+              }}
               onMouseDown={(e) => beginResize(e, h)}
             />
           ))}

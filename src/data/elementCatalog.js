@@ -115,7 +115,7 @@ export const ELEMENT_TYPES = {
         { key: 'clientName', label: 'Client name', text: 'Client Name', required: true },
         { key: 'clientCompany', label: 'Company', text: 'Client Company', required: false },
         { key: 'address', label: 'Address', text: '123 Client Street', required: false },
-        { key: 'email', label: 'Email', text: 'client@email.com', required: false },
+        { key: 'email', label: 'Email', text: 'client@email.com', required: true },
       ],
     }),
   },
