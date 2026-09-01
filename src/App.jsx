@@ -7,14 +7,16 @@ import ShapeLibraryPanel from './components/Panels/ShapeLibraryPanel';
 import PropertiesPanel from './components/Panels/PropertiesPanel';
 import EditorCanvas from './components/Canvas/EditorCanvas';
 import PreviewModal from './components/PreviewModal';
+import ContextMenu from './components/ContextMenu';
 
 function EditorShell() {
   const [previewOpen, setPreviewOpen] = useState(false);
-  useKeyboardShortcuts();
+  const togglePreview = () => setPreviewOpen((v) => !v);
+  useKeyboardShortcuts({ onPreviewToggle: togglePreview });
 
   return (
     <div className="app-shell">
-      <Toolbar onPreview={() => setPreviewOpen(true)} />
+      <Toolbar onPreview={togglePreview} />
       <div className="workspace">
         <div className="panel">
           <ElementLibraryPanel />
@@ -25,6 +27,7 @@ function EditorShell() {
         <PropertiesPanel />
       </div>
       {previewOpen && <PreviewModal onClose={() => setPreviewOpen(false)} />}
+      <ContextMenu />
     </div>
   );
 }

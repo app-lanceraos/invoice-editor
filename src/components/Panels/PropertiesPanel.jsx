@@ -264,6 +264,17 @@ function ContentProperties({ items }) {
         <label>Border width</label>
         <input type="range" min="0" max="6" value={first.borderWidth || 0} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
       </div>
+      {/* Universal (Prompt 15) — every content item renders a frame that
+          can take a radius (Logo/Signature/QR included, since their
+          border/background live on this same outer frame — see
+          CanvasItem.jsx's frameStyle), defaulting to 0 rather than the
+          table-only control's old implicit 4. Table keeps its own control
+          under "Table — Shape" removed below now that this one covers the
+          same `item.cornerRadius` field — no need for two. */}
+      <div className="prop-row">
+        <label>Corner radius</label>
+        <input type="range" min="0" max="24" value={first.cornerRadius ?? 0} onChange={(e) => updateItems(ids, () => ({ cornerRadius: Number(e.target.value) }))} />
+      </div>
     </>
   );
 }
@@ -385,11 +396,9 @@ function TableProperties({ item }) {
         );
       })}
 
-      <div className="panel__section-title">Table — Shape</div>
-      <div className="prop-row">
-        <label>Corner radius</label>
-        <input type="range" min="0" max="24" value={item.cornerRadius ?? 4} onChange={(e) => patch({ cornerRadius: Number(e.target.value) })} />
-      </div>
+      {/* Corner radius lives in the generic ContentProperties section
+          above now (Prompt 15's universal control) — same item.cornerRadius
+          field, no need for a second slider here. */}
       <p className="empty-hint">Drag the thin dividers on the table itself to resize individual columns.</p>
     </>
   );

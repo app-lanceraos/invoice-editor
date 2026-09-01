@@ -23,6 +23,31 @@ export function EditorProvider({ children }) {
   // horizontal, labels } | null. Separate from edgeHighlight since guides
   // are item-to-item, not page-boundary.
   const [guides, setGuides] = useState(null);
+  // Transient, not history: a text-bearing item's actual rendered size,
+  // when it's larger than its own stored width/height (Prompt 14) — a
+  // manually-set size is a MINIMUM for text, not a hard cap (see
+  // CanvasItem.jsx's measurement hook), so this is what collision
+  // detection reads instead of the raw stored size, keeping "no overlap"
+  // true for what's actually on screen rather than the stale box a user
+  // once dragged. Written by each CanvasItem instance as it measures its
+  // own content (not by the item being dragged — every OTHER item's entry
+  // is what a move/resize gesture reads). Keyed by item id; an item with
+  // no entry (never measured, or not a growing variant) just falls back
+  // to its own stored width/height at the read site.
+  const [effectiveSizes, setEffectiveSizes] = useState({});
+  const setEffectiveSize = useCallback((id, size) => {
+    setEffectiveSizes((prev) => {
+      const existing = prev[id];
+      if (existing && existing.width === size.width && existing.height === size.height) return prev;
+      return { ...prev, [id]: size };
+    });
+  }, []);
+  // Transient, not history: the right-click context menu (Prompt 15) —
+  // { x, y } screen position, or null when closed. Deliberately just a
+  // position: which actions it shows is derived fresh from whatever
+  // `selection` holds at render time (right-clicking updates selection
+  // first — see CanvasItem's onContextMenu — so the two never disagree).
+  const [contextMenu, setContextMenu] = useState(null);
 
   const template = history.present;
 
@@ -249,6 +274,10 @@ export function EditorProvider({ children }) {
     setEdgeHighlight,
     guides,
     setGuides,
+    effectiveSizes,
+    setEffectiveSize,
+    contextMenu,
+    setContextMenu,
     toggleContentItem,
     updateItem,
     updateItems,

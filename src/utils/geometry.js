@@ -159,40 +159,51 @@ const GUIDE_TOLERANCE = 4;
 // visually useful sense.
 const DISTANCE_LABEL_RANGE = 160;
 
-// Every point on `otherPoints` within `tolerance` of any of the box's own
-// left/center/right (or top/center/bottom, whichever axis `pos`/`size`
-// represent) — i.e. every alignment that's actually engaged right now, not
-// just the single closest one snapAxis uses for the position delta. Several
-// other items can legitimately share the same aligned line (three items all
-// left-aligned at the same x, say), so this dedupes to the line positions
-// themselves rather than one entry per contributing item.
-function findAlignments(pos, size, otherPoints, tolerance = GUIDE_TOLERANCE) {
+// The single CLOSEST alignment on this axis — among every one of the
+// box's own left/center/right (or top/center/bottom) points that's within
+// `tolerance` of another item's, keep only the nearest match by actual
+// pixel distance (Prompt 14: rendering every match within tolerance, like
+// this used to, let a dense cluster show up to 8 simultaneous guide
+// elements at once — one authoritative line per axis reads as information
+// instead of clutter).
+function nearestAlignment(pos, size, otherPoints, tolerance = GUIDE_TOLERANCE) {
   const points = [pos, pos + size / 2, pos + size];
-  const matches = new Set();
+  let best = null;
+  let bestDist = tolerance;
   points.forEach((p) => {
     otherPoints.forEach((op) => {
-      if (Math.abs(op - p) <= tolerance) matches.add(op);
+      const d = Math.abs(op - p);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = op;
+      }
     });
   });
-  return Array.from(matches);
+  return best;
 }
 
 // Smart guides for a box mid-drag/resize against every OTHER item (shapes
 // included — aligning text to a decorative rail's edge is a real case).
-// Two independent things, both purely visual/informational:
-//   - `vertical`/`horizontal`: page-spanning line positions to render,
-//     wherever this box's own edges/center are actually within tolerance
-//     of another item's — separate from the page-boundary edge highlight,
-//     which is its own system (see clampToPage/clampResizeToPage).
-//   - `labels`: live pixel-gap readouts to the nearest non-overlapping
-//     neighbor on each side, shown independent of whether a snap is
-//     engaged — "nearest in the same row/column, and close enough to be
-//     worth mentioning" per DISTANCE_LABEL_RANGE.
+// Two independent things, both purely visual/informational, and both
+// capped to at most ONE per axis (Prompt 14) — a dense cluster used to be
+// able to show up to 8 simultaneous elements (multiple lines + up to 4
+// gap labels), which read as clutter rather than information:
+//   - `vertical`/`horizontal`: at most one page-spanning line per axis —
+//     whichever of this box's own edges/center is CLOSEST to another
+//     item's, not every alignment within tolerance — separate from the
+//     page-boundary edge highlight, which is its own system (see
+//     clampToPage/clampResizeToPage).
+//   - `labels`: at most one live pixel-gap readout per axis — the nearer
+//     of the two candidate neighbors (e.g. left vs right) on each axis,
+//     shown independent of whether a snap is engaged, and only within
+//     DISTANCE_LABEL_RANGE ("close enough to be worth mentioning").
 export function computeGuides(box, others) {
   const otherXPoints = others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]);
   const otherYPoints = others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]);
-  const vertical = findAlignments(box.x, box.width, otherXPoints);
-  const horizontal = findAlignments(box.y, box.height, otherYPoints);
+  const nearestV = nearestAlignment(box.x, box.width, otherXPoints);
+  const nearestH = nearestAlignment(box.y, box.height, otherYPoints);
+  const vertical = nearestV === null ? [] : [nearestV];
+  const horizontal = nearestH === null ? [] : [nearestH];
 
   const rowNeighbors = others.filter((o) => o.y < box.y + box.height && o.y + o.height > box.y);
   const colNeighbors = others.filter((o) => o.x < box.x + box.width && o.x + o.width > box.x);
@@ -223,11 +234,19 @@ export function computeGuides(box, others) {
     }
   });
 
+  // At most one label per axis — whichever side (left/right, top/bottom)
+  // is actually nearer, not both at once.
   const labels = [];
-  if (leftGap !== null) labels.push({ x: box.x - leftGap / 2, y: box.y + box.height / 2, text: `${Math.round(leftGap)}px` });
-  if (rightGap !== null) labels.push({ x: box.x + box.width + rightGap / 2, y: box.y + box.height / 2, text: `${Math.round(rightGap)}px` });
-  if (topGap !== null) labels.push({ x: box.x + box.width / 2, y: box.y - topGap / 2, text: `${Math.round(topGap)}px` });
-  if (bottomGap !== null) labels.push({ x: box.x + box.width / 2, y: box.y + box.height + bottomGap / 2, text: `${Math.round(bottomGap)}px` });
+  if (leftGap !== null && (rightGap === null || leftGap <= rightGap)) {
+    labels.push({ x: box.x - leftGap / 2, y: box.y + box.height / 2, text: `${Math.round(leftGap)}px` });
+  } else if (rightGap !== null) {
+    labels.push({ x: box.x + box.width + rightGap / 2, y: box.y + box.height / 2, text: `${Math.round(rightGap)}px` });
+  }
+  if (topGap !== null && (bottomGap === null || topGap <= bottomGap)) {
+    labels.push({ x: box.x + box.width / 2, y: box.y - topGap / 2, text: `${Math.round(topGap)}px` });
+  } else if (bottomGap !== null) {
+    labels.push({ x: box.x + box.width / 2, y: box.y + box.height + bottomGap / 2, text: `${Math.round(bottomGap)}px` });
+  }
 
   return { vertical, horizontal, labels };
 }
@@ -274,8 +293,53 @@ export function collisionBoxes(items, margin = COLLISION_MARGIN) {
   });
 }
 
-function boxesOverlap(a, b) {
-  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+// `epsilon` shrinks `a` by that much on every side before testing — used
+// only for the "is this box already invalid" defensive checks below, so a
+// pair of items sitting at (or a hair under) the exact collision margin —
+// which a text item's live-measured effective size (Prompt 14) can
+// legitimately land on, sub-pixel rendering being what it is — doesn't
+// register as a violation and freeze every future gesture on it. The
+// bisections that do the actual resolving stay at epsilon 0: precision
+// there isn't the problem, only the binary "did the gesture start valid"
+// gate is.
+function boxesOverlap(a, b, epsilon = 0) {
+  return (
+    a.minX + epsilon < b.maxX && a.maxX - epsilon > b.minX && a.minY + epsilon < b.maxY && a.maxY - epsilon > b.minY
+  );
+}
+const COLLISION_EPSILON = 1;
+
+// How far this (unrotated) item's own left/right/top/bottom edge is from
+// the nearest other item's (possibly rotated) bounding box in that exact
+// direction — Infinity when nothing's in the way. Used to shrink a resize
+// handle's fixed outward offset only when a neighbor is actually close
+// enough to need it (Prompt 14's audit finding: at the Prompt 12 minimum
+// 2px gap, a handle's full fixed offset visually oversat onto the
+// neighbor) — everywhere else, the handle keeps its normal offset. Only
+// meaningful for an unrotated item: "left/right/top/bottom" stops being a
+// well-defined pair of directions once the item itself is rotated, so
+// CanvasItem only calls this for rotation === 0 and falls back to the
+// fixed offset otherwise.
+export function edgeClearance(item, others) {
+  const bbox = { minX: item.x, maxX: item.x + item.width, minY: item.y, maxY: item.y + item.height };
+  let left = Infinity;
+  let right = Infinity;
+  let top = Infinity;
+  let bottom = Infinity;
+  others.forEach((o) => {
+    const obb = rotatedBoundingBox(o);
+    const yOverlap = bbox.minY < obb.maxY && bbox.maxY > obb.minY;
+    const xOverlap = bbox.minX < obb.maxX && bbox.maxX > obb.minX;
+    if (yOverlap) {
+      if (obb.maxX <= bbox.minX) left = Math.min(left, bbox.minX - obb.maxX);
+      if (obb.minX >= bbox.maxX) right = Math.min(right, obb.minX - bbox.maxX);
+    }
+    if (xOverlap) {
+      if (obb.maxY <= bbox.minY) top = Math.min(top, bbox.minY - obb.maxY);
+      if (obb.minY >= bbox.maxY) bottom = Math.min(bottom, obb.minY - bbox.maxY);
+    }
+  });
+  return { left, right, top, bottom };
 }
 
 // Hard, per-axis contact resolution for a MOVE, in the standard AABB
@@ -353,10 +417,10 @@ export function resolveMoveCollision(lastValid, desired, size, rotation, neighbo
 // the opposite edge stays fixed" shape instead of free translation.
 export function resolveResizeCollision(startBox, candidateBox, handle, neighborBoxes, margin = COLLISION_MARGIN) {
   if (!neighborBoxes.length) return candidateBox;
-  const collides = (box) => {
+  const collides = (box, epsilon = 0) => {
     const bbox = rotatedBoundingBox(box);
     const expanded = { minX: bbox.minX - margin, maxX: bbox.maxX + margin, minY: bbox.minY - margin, maxY: bbox.maxY + margin };
-    return neighborBoxes.some((n) => boxesOverlap(expanded, n));
+    return neighborBoxes.some((n) => boxesOverlap(expanded, n, epsilon));
   };
 
   let x = candidateBox.x;
@@ -369,10 +433,14 @@ export function resolveResizeCollision(startBox, candidateBox, handle, neighborB
       height: startBox.height,
       rotation: candidateBox.rotation,
     });
-    if (collides(testX(0))) {
+    if (collides(testX(0), COLLISION_EPSILON)) {
       // Defensive: this axis was already invalid before the gesture even
-      // moved it (shouldn't normally happen) — stay exactly where it was
-      // rather than let an unclamped candidate slip through.
+      // moved it (a real, if rare, possibility now that a neighbor's
+      // collision box can be a live-measured effective size rather than a
+      // fixed stored one — epsilon absorbs sub-pixel measurement noise
+      // right at the boundary rather than freezing every future gesture
+      // over a fraction of a pixel) — stay exactly where it was rather
+      // than let an unclamped candidate slip through.
       x = startBox.x;
       width = startBox.width;
     } else if (collides(testX(1))) {
@@ -399,7 +467,7 @@ export function resolveResizeCollision(startBox, candidateBox, handle, neighborB
       height: startBox.height + (candidateBox.height - startBox.height) * t,
       rotation: candidateBox.rotation,
     });
-    if (collides(testY(0))) {
+    if (collides(testY(0), COLLISION_EPSILON)) {
       y = startBox.y;
       height = startBox.height;
     } else if (collides(testY(1))) {

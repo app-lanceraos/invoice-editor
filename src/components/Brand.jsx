@@ -23,17 +23,27 @@ export function LogoSVG({ size = 32 }) {
   )
 }
 
-export function WordmarkSVG({ width = 140, height = 21 }) {
+export function WordmarkSVG({ width = 140, height = 21, align = 'baseline' }) {
   // The wordmark's glyphs only occupy the top ~73% of this viewBox (no
   // descenders in "LanceraOS", so all ~27% of empty space sits below
-  // them, none above — measured directly off the path's own geometry).
-  // A plain flex/baseline pairing next to text treats this whole box's
-  // bottom edge as the mark's baseline, which reads as the wordmark
-  // sitting too high by roughly that empty margin. Shifting the box down
-  // by that same percentage of ITS OWN height (not a fixed px value, so
-  // it holds at any requested width/height) puts the visible letters back
-  // on the actual shared baseline instead of the box's artificial one.
-  const BOTTOM_PADDING_PCT = 26.97;
+  // them, none above — measured directly off the path's own geometry via
+  // getBBox(): y≈0, height≈15.337 of 21 total). Two different alignment
+  // targets need two different shifts, since the glyphs' own natural
+  // (unshifted) center already sits above the box's own 50% line, at
+  // ~36.5%:
+  //   - 'baseline' (Prompt 10, the toolbar's own pairing): a plain flex/
+  //     baseline pairing next to text treats this whole box's bottom edge
+  //     as the mark's baseline, which reads as sitting too high by
+  //     roughly the empty margin below the glyphs — shifting down by
+  //     that same 26.97% puts the visible letters back on the shared
+  //     baseline.
+  //   - 'center' (Prompt 15, the footer's own pairing, `align-items:
+  //     center` rather than `baseline`): shifting by that same 26.97%
+  //     overshoots — it was tuned to land on a baseline, not this box's
+  //     own geometric center. The shift that actually puts the glyphs'
+  //     true rendered center at the box's own 50% line is 50 − 36.517 ≈
+  //     13.483%, likewise measured directly off the path, not guessed.
+  const SHIFT_PCT = align === 'center' ? 13.483 : 26.97;
   return (
     <svg
       viewBox="0 0 140 21"
@@ -41,7 +51,7 @@ export function WordmarkSVG({ width = 140, height = 21 }) {
       width={width}
       height={height}
       aria-label="LanceraOS"
-      style={{ display: 'block', flexShrink: 0, transform: `translateY(${BOTTOM_PADDING_PCT}%)` }}
+      style={{ display: 'block', flexShrink: 0, transform: `translateY(${SHIFT_PCT}%)` }}
     >
       <path
         fill="var(--wordmark)"

@@ -46,6 +46,8 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
         return;
       }
 
+      if (!mod && e.key.toLowerCase() === 'p') { e.preventDefault(); onPreviewToggle?.(); return; }
+
       if (e.key === 'Escape') { setSelection({ ids: [], part: null }); return; }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -60,5 +62,5 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemFromClipboard]);
+  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemFromClipboard, onPreviewToggle]);
 }

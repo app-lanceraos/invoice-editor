@@ -47,7 +47,9 @@ export default function Toolbar({ onPreview }) {
 
       <div className="toolbar__spacer" />
 
-      <button className="tbtn" onClick={onPreview}>Preview</button>
+      <button className="tbtn" onClick={onPreview}>
+        Preview <span className="tbtn__key">P</span>
+      </button>
       <button className="tbtn tbtn--primary" onClick={runSave}>
         Save <span className="tbtn__key" style={{ borderColor: 'rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.8)' }}>⌘S</span>
       </button>

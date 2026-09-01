@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
@@ -17,6 +17,7 @@ import {
   collisionBoxes,
   resolveMoveCollision,
   resolveResizeCollision,
+  edgeClearance,
 } from '../../utils/geometry';
 
 // Table columns default to equal shares of the table's width; stored as
@@ -30,10 +31,21 @@ const MIN_COLUMN_PCT = 6;
 const NOOP = () => {};
 // How far outside the item's own border each resize handle floats —
 // standard design-tool convention (a corner/edge dot hovering just clear
-// of the selection outline, not sitting on top of it).
+// of the selection outline, not sitting on top of it). Adaptive (Prompt
+// 14): a handle facing a neighbor too close for the full HANDLE_GAP
+// shrinks just enough to stop short of it — down to flush with the
+// item's own border, never negative/inside it — instead of visually
+// oversitting onto the neighbor's own clickable area (the Prompt 13
+// audit's finding, at the Prompt 12 minimum 2px gap). `HALF_HANDLE`
+// accounts for the dot's own visual radius, so its EDGE clears the
+// neighbor, not just the coordinate it's centered on.
 const HANDLE_GAP = 8;
-function handleOffset(fx) {
-  return (fx - 0.5) * 2 * HANDLE_GAP;
+const HALF_HANDLE = 6;
+function adaptiveHandleOffset(fx, negClearance, posClearance) {
+  if (fx === 0.5) return 0;
+  const clearance = fx === 1 ? posClearance : negClearance;
+  const capped = clearance === Infinity ? HANDLE_GAP : Math.max(0, Math.min(HANDLE_GAP, clearance - HALF_HANDLE));
+  return fx === 1 ? capped : -capped;
 }
 
 // Text-bearing variants whose box no longer scales its content (Prompt
@@ -54,6 +66,65 @@ const TEXT_VARIANTS = new Set(['text', 'label-value', 'block', 'note']);
 // within extra box height instead of stretching it to fill that height.
 function vAlignToFlex(v) {
   return v === 'middle' ? 'center' : v === 'bottom' ? 'flex-end' : 'flex-start';
+}
+
+// Variants whose text can WRAP across multiple lines — their true minimum
+// width is the widest single WORD (CSS `min-content`: anything narrower
+// would overflow mid-word), not the full unwrapped text. `label-value`
+// never wraps (`.item__label-value` is `white-space: nowrap`), so its
+// minimum IS its full natural width — plain shrink-to-fit already gives
+// that correctly.
+const WRAPPING_VARIANTS = new Set(['text', 'note', 'block']);
+
+// Prompt 14: a manually-set width/height is a MINIMUM for text, not a hard
+// cap — Prompt 13 let a box smaller than its content spill text past its
+// own frame as a safety net (better than silently hiding it), but left
+// the frame's own size — and hence its collision footprint — stale,
+// letting the overflow visually defeat Prompt 12's no-overlap guarantee.
+// Two hidden, offscreen clones of the item's own content measure what the
+// EFFECTIVE (possibly grown) box actually needs to be:
+//   - `minRef`: width `min-content` for a wrapping variant, or
+//     unconstrained/auto (shrink-to-fit — its true minimum, since it
+//     never wraps) otherwise.
+//   - `wrapRef`: width pinned to max(current box width, that measured
+//     minimum) — the real height the text needs once wrapped at whatever
+//     width it actually ends up rendering at.
+// Neither value is ever written back to item.width/height — that would
+// turn every font/resize/content change into a spurious extra undo step
+// (same reasoning as Prompt 11's original measurement system); the
+// combination with the item's own stored size happens in the component
+// below, entirely in local/derived state.
+function useMinContentSize(active) {
+  const minRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [minWidth, setMinWidth] = useState(null);
+  const [wrappedHeight, setWrappedHeight] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!active) return undefined;
+    const node = minRef.current;
+    if (!node) return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry.contentRect.width;
+      setMinWidth((prev) => (prev !== null && Math.abs(prev - w) < 0.5 ? prev : w));
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [active]);
+
+  useLayoutEffect(() => {
+    if (!active) return undefined;
+    const node = wrapRef.current;
+    if (!node) return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const h = entry.contentRect.height;
+      setWrappedHeight((prev) => (prev !== null && Math.abs(prev - h) < 0.5 ? prev : h));
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [active]);
+
+  return { minRef, wrapRef, minWidth: active ? minWidth : null, wrappedHeight: active ? wrappedHeight : null };
 }
 
 function partInlineStyle(item, part, fallbackColor, fallbackWeight, fallbackSize) {
@@ -80,7 +151,7 @@ function partInlineStyle(item, part, fallbackColor, fallbackWeight, fallbackSize
 // (possibly resized) box, so nothing here needs to know its current size.
 // Only `block`/`qr` variants have an independently-selectable title/body;
 // everything else is a single unstyled-by-part run of content.
-function ContentBody({ item, isPartSelected, onSelectPart }) {
+function ContentBody({ item, isPartSelected, onSelectPart, isPartHovered, onPartHoverEnter, onPartHoverLeave, onPartContextMenu }) {
   const def = ELEMENT_TYPES[item.type];
   const data = def.render();
 
@@ -133,16 +204,22 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
           }}
         >
           <span
-            className={`item__label${isPartSelected('label') ? ' item__label--selected' : ''}`}
+            className={`item__label${isPartSelected('label') ? ' item__label--selected' : isPartHovered('label') ? ' item__label--hover' : ''}`}
             style={labelStyle}
             onClick={(e) => onSelectPart(e, 'label')}
+            onMouseEnter={(e) => onPartHoverEnter(e, 'label')}
+            onMouseLeave={(e) => onPartHoverLeave(e, 'label')}
+            onContextMenu={(e) => onPartContextMenu(e, 'label')}
           >
             {data.label}
           </span>
           <span
-            className={`item__value${isPartSelected('value') ? ' item__value--selected' : ''}`}
+            className={`item__value${isPartSelected('value') ? ' item__value--selected' : isPartHovered('value') ? ' item__value--hover' : ''}`}
             style={valueStyle}
             onClick={(e) => onSelectPart(e, 'value')}
+            onMouseEnter={(e) => onPartHoverEnter(e, 'value')}
+            onMouseLeave={(e) => onPartHoverLeave(e, 'value')}
+            onContextMenu={(e) => onPartContextMenu(e, 'value')}
           >
             {data.value}
           </span>
@@ -165,18 +242,24 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       return (
         <div className="item__block" style={{ height: 'auto', ...alignStyle() }}>
           <div
-            className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : ''}`}
+            className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : isPartHovered('title') ? ' item__block-title--hover' : ''}`}
             style={titleStyle}
             onClick={(e) => onSelectPart(e, 'title')}
+            onMouseEnter={(e) => onPartHoverEnter(e, 'title')}
+            onMouseLeave={(e) => onPartHoverLeave(e, 'title')}
+            onContextMenu={(e) => onPartContextMenu(e, 'title')}
           >
             {data.title.text}
           </div>
           {visibleLines.map((line) => (
             <div
-              className={`item__block-line${isPartSelected(line.key) ? ' item__block-line--selected' : ''}`}
+              className={`item__block-line${isPartSelected(line.key) ? ' item__block-line--selected' : isPartHovered(line.key) ? ' item__block-line--hover' : ''}`}
               style={partInlineStyle(item, line.key, '#55524a', undefined, 9)}
               key={line.key}
               onClick={(e) => onSelectPart(e, line.key)}
+              onMouseEnter={(e) => onPartHoverEnter(e, line.key)}
+              onMouseLeave={(e) => onPartHoverLeave(e, line.key)}
+              onContextMenu={(e) => onPartContextMenu(e, line.key)}
             >
               {line.text}
             </div>
@@ -219,14 +302,17 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
       return (
         <div className="item__block">
           <div
-            className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : ''}`}
+            className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : isPartHovered('title') ? ' item__block-title--hover' : ''}`}
             style={titleStyle}
             onClick={(e) => onSelectPart(e, 'title')}
+            onMouseEnter={(e) => onPartHoverEnter(e, 'title')}
+            onMouseLeave={(e) => onPartHoverLeave(e, 'title')}
+            onContextMenu={(e) => onPartContextMenu(e, 'title')}
           >
             {data.label}
           </div>
           <div
-            className={`item__qr-wrap${isPartSelected('body') ? ' item__qr-wrap--selected' : ''}`}
+            className={`item__qr-wrap${isPartSelected('body') ? ' item__qr-wrap--selected' : isPartHovered('body') ? ' item__qr-wrap--hover' : ''}`}
             style={{
               background: bodyBoxStyle.background,
               borderColor: bodyBoxStyle.borderColor,
@@ -234,6 +320,9 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
               borderStyle: bodyBoxStyle.borderStyle,
             }}
             onClick={(e) => onSelectPart(e, 'body')}
+            onMouseEnter={(e) => onPartHoverEnter(e, 'body')}
+            onMouseLeave={(e) => onPartHoverLeave(e, 'body')}
+            onContextMenu={(e) => onPartContextMenu(e, 'body')}
           >
             <svg viewBox={`0 0 ${data.qrSize} ${data.qrSize}`} className="item__qr-svg">
               <rect width={data.qrSize} height={data.qrSize} fill="#fff" />
@@ -274,7 +363,7 @@ function ContentBody({ item, isPartSelected, onSelectPart }) {
               onto this element has no effect on an SVG's own paths. */}
           <div className="item__footer-right" style={{ '--wordmark': item.textColor || '#a09a89' }}>
             <span>Generated by</span>
-            <WordmarkSVG width={56} height={8.4} />
+            <WordmarkSVG width={56} height={8.4} align="center" />
           </div>
         </div>
       );
@@ -392,7 +481,17 @@ const RotateIcon = (
 // move/resize/rotate/part-click handlers that would mutate the live
 // template out from under the editor.
 export default function CanvasItem({ item, readOnly = false }) {
-  const { template, selection, setSelection, updateItem, setEdgeHighlight, setGuides } = useEditor();
+  const {
+    template,
+    selection,
+    setSelection,
+    updateItem,
+    setEdgeHighlight,
+    setGuides,
+    effectiveSizes,
+    setEffectiveSize,
+    setContextMenu,
+  } = useEditor();
   const def = item.kind === 'content' ? ELEMENT_TYPES[item.type] : null;
 
   const isSelected = !readOnly && selection.ids.includes(item.id);
@@ -403,6 +502,21 @@ export default function CanvasItem({ item, readOnly = false }) {
   const [live, setLive] = useState(null); // { x, y, width, height, rotation } while dragging
   const [rotationSnapped, setRotationSnapped] = useState(false);
   const draggedRef = useRef(false); // did the current mousedown gesture actually move?
+
+  // Hover preview (Prompt 15) — local, transient, cleared the instant the
+  // cursor leaves; never touches selection state. `hoverWhole` tracks the
+  // outer frame's own mouseenter/leave (native mouseenter/leave don't
+  // bubble, so this stays true while the cursor is anywhere inside the
+  // item, sub-parts included, and only flips false on actually leaving
+  // the item). `hoveredPart` tracks whichever sub-part's OWN
+  // mouseenter/leave last fired, taking priority over the whole-item
+  // preview the same way a click on a part takes priority over a
+  // whole-item click.
+  const [hoverWhole, setHoverWhole] = useState(false);
+  const [hoveredPart, setHoveredPart] = useState(null);
+  const isPartHovered = (part) => hoveredPart === part;
+  const onPartHoverEnter = (e, part) => setHoveredPart(part);
+  const onPartHoverLeave = (e, part) => setHoveredPart((prev) => (prev === part ? null : prev));
 
   const current = { ...item, ...(live || {}) };
   const rotation = current.rotation || 0;
@@ -417,8 +531,29 @@ export default function CanvasItem({ item, readOnly = false }) {
   const isTextVariant = !!def && TEXT_VARIANTS.has(def.variant);
   const scaleX = isTextVariant || !(item.naturalWidth > 0) ? 1 : current.width / item.naturalWidth;
   const scaleY = isTextVariant || !(item.naturalHeight > 0) ? 1 : current.height / item.naturalHeight;
-  const scaleWrapperWidth = isTextVariant ? current.width : item.naturalWidth;
-  const scaleWrapperHeight = isTextVariant ? current.height : item.naturalHeight;
+
+  // Prompt 14: the box a text variant actually renders (and the one other
+  // items' collision checks must respect) is current.width/height grown
+  // just enough to contain its own measured content — never smaller than
+  // what's stored, only ever larger when the content needs more room.
+  const { minRef, wrapRef, minWidth, wrappedHeight } = useMinContentSize(isTextVariant);
+  const effectiveWidth = isTextVariant ? Math.max(current.width, minWidth ?? current.width) : current.width;
+  const effectiveHeight = isTextVariant ? Math.max(current.height, wrappedHeight ?? current.height) : current.height;
+
+  useEffect(() => {
+    if (isTextVariant) setEffectiveSize(item.id, { width: effectiveWidth, height: effectiveHeight });
+  }, [isTextVariant, item.id, effectiveWidth, effectiveHeight, setEffectiveSize]);
+
+  const scaleWrapperWidth = isTextVariant ? effectiveWidth : item.naturalWidth;
+  const scaleWrapperHeight = isTextVariant ? effectiveHeight : item.naturalHeight;
+
+  // Collision must react to what's actually on screen, not a stale stored
+  // size — a neighbor's own grown (Prompt 14) box, when it has one, is
+  // what beginMove/beginResize below build their neighbor list from.
+  const withEffectiveSize = (o) => {
+    const eff = effectiveSizes[o.id];
+    return eff ? { ...o, width: eff.width, height: eff.height } : o;
+  };
 
   const beginMove = (e) => {
     e.stopPropagation();
@@ -455,7 +590,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     // static for the duration of this gesture (only one item ever moves at
     // a time), so they're computed once here rather than every frame.
     const collisionNeighbors =
-      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content')) : null;
+      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content').map(withEffectiveSize)) : null;
     let lastValid = { x: item.x, y: item.y };
     let finalPos = null;
 
@@ -505,6 +640,12 @@ export default function CanvasItem({ item, readOnly = false }) {
   const beginResize = (e, handle) => {
     e.stopPropagation();
     e.preventDefault();
+    // A sub-part being selected doesn't hide the whole item's handles
+    // (Prompt 15 — internal padding is tight enough that "click empty
+    // space to select the container" was often unreachable) — grabbing
+    // one both performs the resize AND switches selection to the whole
+    // item, so there's no intermediate step required first.
+    if (selection.part) setSelection({ ids: [item.id], part: null });
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
@@ -516,7 +657,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     const snapXCandidates = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
     const snapYCandidates = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
     const collisionNeighbors =
-      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content')) : null;
+      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content').map(withEffectiveSize)) : null;
     let finalBox = null;
 
     const onMove = (ev) => {
@@ -569,6 +710,7 @@ export default function CanvasItem({ item, readOnly = false }) {
   const beginRotate = (e) => {
     e.stopPropagation();
     e.preventDefault();
+    if (selection.part) setSelection({ ids: [item.id], part: null });
     const rect = e.currentTarget.parentElement.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
@@ -597,6 +739,25 @@ export default function CanvasItem({ item, readOnly = false }) {
     e.stopPropagation();
     if (draggedRef.current) return; // this click ended a drag, not a part pick
     setSelection({ ids: [item.id], part: { id: item.id, key: part } });
+  };
+
+  // Right-click (Prompt 15). `part` is the specific sub-part right-
+  // clicked, or null for the whole item. If this item is already part of
+  // the current selection (whole or multi), that selection is left alone
+  // — right-clicking one of several selected items shows the
+  // intersection-of-actions menu for all of them, not a reset to just
+  // this one. Otherwise it becomes the new (single) selection first, same
+  // as a left-click would, so the menu that follows always matches what's
+  // actually selected.
+  const beginContextMenu = (e, part) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selection.ids.includes(item.id)) {
+      setSelection({ ids: [item.id], part: part ? { id: item.id, key: part } : null });
+    } else if (part && !(selection.part && selection.part.id === item.id && selection.part.key === part)) {
+      setSelection({ ids: [item.id], part: { id: item.id, key: part } });
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
   // Drags one column-boundary divider — redistributes width between just
@@ -639,15 +800,16 @@ export default function CanvasItem({ item, readOnly = false }) {
 
   // The selection outline (`.item--selected::after`) uses border-radius:
   // inherit, so the frame needs to carry the same radius as what's
-  // actually rendered inside it — a plain 4px softening for content
-  // (overridable per-item, exposed for the table's own dedicated corner-
-  // radius control), the shape's own radius (including the ellipse/line
-  // special cases) for shapes — otherwise a round shape would get a
-  // square selection box.
+  // actually rendered inside it — `item.cornerRadius`, a universal
+  // per-item style property (Prompt 15) defaulting to 0 for every content
+  // type (Logo/Signature/QR and every text-bearing variant included, not
+  // just the table it started as) — the shape's own radius (including the
+  // ellipse/line special cases) for shapes — otherwise a round shape
+  // would get a square selection box.
   const frameStyle =
     item.kind === 'content'
       ? {
-          borderRadius: item.cornerRadius ?? 4,
+          borderRadius: item.cornerRadius ?? 0,
           borderColor: item.borderColor,
           borderWidth: item.borderWidth ? `${item.borderWidth}px` : undefined,
           borderStyle: item.borderWidth ? 'solid' : undefined,
@@ -656,20 +818,42 @@ export default function CanvasItem({ item, readOnly = false }) {
         }
       : { borderRadius: shapeBorderRadius(item) };
 
+  // Only preview the WHOLE item's outline when nothing about it is
+  // already selected (whole or part — either one already renders
+  // .item--selected on this same frame, so a second, lighter outline on
+  // top would just be visual noise) and no sub-part is the one actually
+  // being hovered right now (that takes priority, same as clicks do).
+  const showHoverWhole = !readOnly && hoverWhole && hoveredPart === null && !isSelected;
+
   return (
     <div
-      className={`item item--${item.kind}${def ? ` item--${def.variant}` : ''}${isSelected ? ' item--selected' : ''}`}
+      className={`item item--${item.kind}${def ? ` item--${def.variant}` : ''}${isSelected ? ' item--selected' : ''}${showHoverWhole ? ' item--hover-preview' : ''}`}
       style={{
         position: 'absolute',
         left: current.x,
         top: current.y,
-        width: current.width,
-        height: current.height,
+        // The item's own border/background/selection-outline all live on
+        // THIS frame, so growing it (not just the inner `.item__scale`) is
+        // what makes an under-sized text box visually contain its content
+        // instead of just having the content spill past an unchanged
+        // border (Prompt 14).
+        width: effectiveWidth,
+        height: effectiveHeight,
         transform: rotation ? `rotate(${rotation}deg)` : undefined,
         cursor: readOnly ? 'default' : item.locked ? 'default' : 'grab',
         ...frameStyle,
       }}
       onMouseDown={readOnly ? undefined : beginMove}
+      onContextMenu={readOnly ? undefined : (e) => beginContextMenu(e, null)}
+      onMouseEnter={readOnly ? undefined : () => setHoverWhole(true)}
+      onMouseLeave={
+        readOnly
+          ? undefined
+          : () => {
+              setHoverWhole(false);
+              setHoveredPart(null);
+            }
+      }
     >
       <div
         className="item__scale"
@@ -693,9 +877,52 @@ export default function CanvasItem({ item, readOnly = false }) {
         {item.kind === 'shape' ? (
           <ShapeBody item={item} />
         ) : (
-          <ContentBody item={current} isPartSelected={isPartSelected} onSelectPart={readOnly ? NOOP : handlePartClick} />
+          <ContentBody
+            item={current}
+            isPartSelected={isPartSelected}
+            onSelectPart={readOnly ? NOOP : handlePartClick}
+            isPartHovered={readOnly ? NOOP : isPartHovered}
+            onPartHoverEnter={readOnly ? NOOP : onPartHoverEnter}
+            onPartHoverLeave={readOnly ? NOOP : onPartHoverLeave}
+            onPartContextMenu={readOnly ? NOOP : beginContextMenu}
+          />
         )}
       </div>
+
+      {isTextVariant && (
+        <>
+          <div
+            ref={minRef}
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              visibility: 'hidden',
+              pointerEvents: 'none',
+              zIndex: -1,
+              width: def.variant && WRAPPING_VARIANTS.has(def.variant) ? 'min-content' : undefined,
+            }}
+          >
+            <ContentBody item={current} isPartSelected={() => false} onSelectPart={() => {}} isPartHovered={() => false} onPartHoverEnter={() => {}} onPartHoverLeave={() => {}} onPartContextMenu={() => {}} />
+          </div>
+          <div
+            ref={wrapRef}
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              visibility: 'hidden',
+              pointerEvents: 'none',
+              zIndex: -1,
+              width: Math.max(current.width, minWidth ?? current.width),
+            }}
+          >
+            <ContentBody item={current} isPartSelected={() => false} onSelectPart={() => {}} isPartHovered={() => false} onPartHoverEnter={() => {}} onPartHoverLeave={() => {}} onPartContextMenu={() => {}} />
+          </div>
+        </>
+      )}
 
       {isWholeSelected && !item.locked && def?.variant === 'table' && (() => {
         const widths = current.columnWidths || defaultColumnWidths(def.render().columns.length);
@@ -713,28 +940,38 @@ export default function CanvasItem({ item, readOnly = false }) {
         });
       })()}
 
-      {isWholeSelected && !item.locked && (
-        <>
-          {RESIZE_HANDLES.map((h) => (
+      {isSelected && !item.locked && (() => {
+        // "left/right/top/bottom" only stays well-defined for an
+        // unrotated item — a rotated one just keeps the fixed offset
+        // (Infinity clearance on every side is adaptiveHandleOffset's
+        // no-neighbor fallback, so this reuses the exact same call).
+        const clearance =
+          rotation === 0
+            ? edgeClearance(item, template.items.filter((i) => i.id !== item.id).map(withEffectiveSize))
+            : { left: Infinity, right: Infinity, top: Infinity, bottom: Infinity };
+        return (
+          <>
+            {RESIZE_HANDLES.map((h) => (
+              <div
+                key={h.key}
+                className="item__resize-handle"
+                style={{
+                  left: `calc(${h.fx * 100}% + ${adaptiveHandleOffset(h.fx, clearance.left, clearance.right)}px)`,
+                  top: `calc(${h.fy * 100}% + ${adaptiveHandleOffset(h.fy, clearance.top, clearance.bottom)}px)`,
+                  cursor: h.cursor,
+                }}
+                onMouseDown={(e) => beginResize(e, h)}
+              />
+            ))}
             <div
-              key={h.key}
-              className="item__resize-handle"
-              style={{
-                left: `calc(${h.fx * 100}% + ${handleOffset(h.fx)}px)`,
-                top: `calc(${h.fy * 100}% + ${handleOffset(h.fy)}px)`,
-                cursor: h.cursor,
-              }}
-              onMouseDown={(e) => beginResize(e, h)}
-            />
-          ))}
-          <div
-            className={`item__rotate-handle${rotationSnapped ? ' item__rotate-handle--snapped' : ''}`}
-            onMouseDown={beginRotate}
-          >
-            {RotateIcon}
-          </div>
-        </>
-      )}
+              className={`item__rotate-handle${rotationSnapped ? ' item__rotate-handle--snapped' : ''}`}
+              onMouseDown={beginRotate}
+            >
+              {RotateIcon}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

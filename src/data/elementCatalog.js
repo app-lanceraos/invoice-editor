@@ -65,11 +65,17 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'text',
-    // y: 42, not 36 — leaves exactly the 2px collision gap Invoice's box
-    // (above it, y:24 height:16, bottom edge 40) needs below it; the
+    // y: 46, not 36 — Invoice's box sits right above it (y:24, height:16
+    // stored), and Prompt 14's live text measurement found its TRUE
+    // rendered height is ~17px, not exactly 16 (sub-pixel line-height,
+    // invisible until a text item's collision box started reflecting its
+    // real measured size instead of the stored one). Leaving a genuine
+    // few-px margin here — not the bare Prompt-12 2px minimum this row
+    // was previously tuned to exactly — so ordinary sub-pixel rendering
+    // variance can never tip these two into an actual collision. The
     // whole header row shifted down together with it (invoiceNumber,
     // issueDate, dueDate) to keep the row's own baseline aligned.
-    defaultBox: { x: 90, y: 42, width: 130, height: 18 },
+    defaultBox: { x: 90, y: 46, width: 130, height: 18 },
     render: () => 'Business Name',
   },
   invoiceNumber: {
@@ -77,7 +83,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'text',
-    defaultBox: { x: 236, y: 42, width: 90, height: 18 },
+    defaultBox: { x: 236, y: 46, width: 90, height: 18 },
     render: () => 'INV-0001',
   },
   // 'label-value' is a styling split only — the label ("Issue date:") and
@@ -90,7 +96,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'label-value',
-    defaultBox: { x: 342, y: 42, width: 150, height: 18 },
+    defaultBox: { x: 342, y: 46, width: 150, height: 18 },
     render: () => ({ label: 'Issue date:', value: '01-01-2026' }),
   },
   dueDate: {
@@ -98,7 +104,7 @@ export const ELEMENT_TYPES = {
     required: true,
     defaultOn: true,
     variant: 'label-value',
-    defaultBox: { x: 508, y: 42, width: 150, height: 18 },
+    defaultBox: { x: 508, y: 46, width: 150, height: 18 },
     render: () => ({ label: 'Due Date:', value: '15-01-2026' }),
   },
   // block-variant `render()` returns { title, lines }: `title` is the
