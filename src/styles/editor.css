@@ -147,39 +147,63 @@ body {
   padding: 16px;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 .panel--right {
   border-right: none;
 }
 
-/* Prompt 23 item 1: each sidebar is a rail button + its (optionally
-   hidden) panel content, laid out as a flex row so the rail always stays
-   a fixed width regardless of whether the panel next to it is expanded —
-   `.workspace`'s own grid-template-columns (set inline in App.jsx) is
-   what actually shrinks the WHOLE column down to just the rail's width
-   when collapsed. `--right` reverses the row so the rail stays on the
-   canvas-facing inner edge for both sidebars (left panel: rail on its
-   right; right panel: rail on its left), matching where a collapse
-   toggle reads most naturally on each side. */
+/* Prompt 24 item 1: redesigned from Prompt 23's dedicated full-height
+   rail strip AND from an absolutely-positioned button overlapping the
+   panel's own content — `.panel-wrap` is now a plain column flexbox:
+   collapsed, it holds just the toggle button (centered by ordinary flex
+   centering, so it's mechanically impossible for it to sit wider than
+   the column and drift outside it — item 2's fix); expanded, it holds a
+   small header row (label + toggle, normal inline flow, no overlap risk
+   with the panel's own content below) followed by the actual panel. */
 .panel-wrap {
   display: flex;
+  flex-direction: column;
   min-height: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-glass);
 }
 
 .panel-wrap--right {
-  flex-direction: row-reverse;
   border-right: none;
   border-left: 1px solid var(--border-glass);
 }
 
-.panel-rail__btn {
+.panel-wrap--collapsed {
+  align-items: center;
+  padding-top: 10px;
+}
+
+.panel-header {
   flex-shrink: 0;
-  width: 24px;
-  align-self: flex-start;
-  margin: 10px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 0;
+}
+
+/* Right panel's canvas-facing inner edge is its LEFT — the toggle stays
+   on that inner edge for both sidebars, label on the outer edge. */
+.panel-wrap--right .panel-header {
+  flex-direction: row-reverse;
+}
+
+.panel-header__label {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.panel-toggle-btn {
+  flex-shrink: 0;
+  width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
@@ -193,7 +217,7 @@ body {
   transition: border-color 120ms ease, background 120ms ease;
 }
 
-.panel-rail__btn:hover {
+.panel-toggle-btn:hover {
   border-color: var(--border-glass-strong);
   background: rgba(168, 156, 242, 0.08);
 }
@@ -591,12 +615,11 @@ body {
   opacity: 0.6;
 }
 
-/* Prompt 23 item 4: the top-center resize handle now sits ON the border
-   (extending at most HALF_HANDLE=4px above it — see CanvasItem's
-   adaptiveHandleOffset), so -30px leaves a clear ~8px gap between the two
-   at every item size, rather than the old -26px overlapping it (the
-   rotate handle's own 18px height reached down to -8px, landing inside
-   the resize handle's then floating span). */
+/* Prompt 24 item 3 recalibration: the top-center resize handle now
+   straddles the selection outline (centered 4px above the item's true
+   edge, extending to -8px at its own outward point — see CanvasItem's
+   SELECTION_OUTLINE_INSET/HALF_HANDLE), so -34px leaves a clear ~8px gap
+   between the two at every item size. */
 .item__rotate-handle {
   position: absolute;
   z-index: 2;
@@ -609,7 +632,7 @@ body {
   border: 1.5px solid var(--purple-500);
   border-radius: 50%;
   left: 50%;
-  top: -30px;
+  top: -34px;
   transform: translateX(-50%);
   cursor: grab;
   transition: box-shadow 100ms ease, border-width 100ms ease;

@@ -6,7 +6,7 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   const {
     template, selection, setSelection,
     undo, redo, runSave,
-    deleteItems, deleteBlockLine, duplicateItems, groupItems,
+    deleteItems, canDeleteSelection, deleteBlockLine, canDeleteBlockLine, duplicateItems, groupItems,
     addItemsFromClipboard,
   } = useEditor();
 
@@ -78,10 +78,18 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
 
       if (e.key === 'Escape') { setSelection({ ids: [], part: null }); return; }
 
+      // Prompt 25: explicitly gated the same way the Toolbar button and
+      // ContextMenu item now are — deleteItems/deleteBlockLine already
+      // no-op safely on their own, but every surface that offers Delete
+      // should agree on when it's actually available, not just rely on
+      // an internal guard elsewhere (same reasoning as Prompt 23's
+      // Duplicate gate above).
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection.part && selection.ids.length === 1) {
-          deleteBlockLine(selection.ids[0], selection.part.key);
-        } else if (selection.ids.length > 0) {
+          if (canDeleteBlockLine(selection.ids[0], selection.part.key)) {
+            deleteBlockLine(selection.ids[0], selection.part.key);
+          }
+        } else if (canDeleteSelection(selection.ids)) {
           deleteItems(selection.ids);
         }
         return;
@@ -90,5 +98,5 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemsFromClipboard, onPreviewToggle]);
+  }, [template, selection, undo, redo, runSave, deleteItems, canDeleteSelection, deleteBlockLine, canDeleteBlockLine, duplicateItems, groupItems, setSelection, addItemsFromClipboard, onPreviewToggle]);
 }

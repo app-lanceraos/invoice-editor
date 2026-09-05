@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useEditor } from '../../state/EditorContext';
-import { RotateIcon } from './CanvasItem';
+import { RotateIcon, SELECTION_OUTLINE_INSET } from './CanvasItem';
 import { beginDragSelectGuard } from '../../utils/dragGuard';
 import {
   RESIZE_HANDLES,
@@ -14,11 +14,16 @@ import {
   rotateVector,
 } from '../../utils/geometry';
 
-// Prompt 23 item 5: square handles centered directly on the group box's own
-// border, same convention as CanvasItem's individual-item handles — no
+// Prompt 24 item 3: square handles straddling the group box's own visible
+// selection outline (`.group-selection-box::after`, same `-4px` inset as
+// an individual item's own outline — see CanvasItem's SELECTION_OUTLINE_
+// INSET), same convention as CanvasItem's individual-item handles — no
 // adaptive-neighbor shrinking here (a synthetic group box has no single
 // "neighbor" of its own to stay clear of the way an individual item's
-// handle does).
+// handle does), so the offset is just the fixed ideal reach, unconditionally.
+function groupHandleOffset(f) {
+  return f === 0.5 ? 0 : f === 1 ? SELECTION_OUTLINE_INSET : -SELECTION_OUTLINE_INSET;
+}
 
 // Prompt 18 item 2: a whole-item-level property is a MINIMUM for text
 // (Prompt 14), but a multi-select resize is a genuine SCALE transform —
@@ -271,8 +276,8 @@ export default function GroupSelectionOverlay() {
           key={h.key}
           className="item__resize-handle"
           style={{
-            left: `${h.fx * 100}%`,
-            top: `${h.fy * 100}%`,
+            left: `calc(${h.fx * 100}% + ${groupHandleOffset(h.fx)}px)`,
+            top: `calc(${h.fy * 100}% + ${groupHandleOffset(h.fy)}px)`,
             cursor: h.cursor,
             pointerEvents: 'auto',
           }}

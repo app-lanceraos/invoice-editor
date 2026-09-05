@@ -18,10 +18,41 @@ const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
 // space-between`, so it only loses the HORIZONTAL control (see showHAlign
 // below) — vertical position doesn't fight the spread, so it keeps that
 // one.
-const ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value']);
+//
+// Prompt 24 item 4 (audit follow-through): `qr` is intentionally in the
+// HORIZONTAL set only, not the vertical one — its title text genuinely
+// respects `contentAlign` now (see CanvasItem's qr case), but vertical
+// position for `qr` (and `table`/`divider`/`image`) is governed by the
+// natural-size + scale-transform rendering path, not the flex/justify-
+// content mechanism TEXT_VARIANTS use — adding it to the vertical set
+// without also moving `qr` into TEXT_VARIANTS (a much bigger rendering
+// change, out of scope here) would just be a second dead control, the
+// exact class of bug this pass is fixing elsewhere.
+const H_ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value', 'qr']);
+const V_ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value']);
+
+// Prompt 24 item 4: widened from `variant === 'block'` only — the
+// underlying per-part `contentAlign` field (CanvasItem's partInlineStyle)
+// was already read generically for every part regardless of variant, so
+// `qr`'s title and label-value's label/value spans support it exactly as
+// well as block's title/lines already did; only the PROPERTIES PANEL gate
+// was artificially narrower than what the rendering already supported.
+// `qr`'s "body" part is the exception WITHIN that widening: it's an SVG
+// QR graphic, not a text run — its own case in CanvasItem.jsx computes a
+// `contentAlign`-derived style but only ever applies the background/
+// border pieces of it to `.item__qr-wrap`, never `textAlign`. Exposing
+// Align there would just be a second dead control (the exact bug class
+// item 4 elsewhere in this pass removes), so qr's own title is singled
+// out instead of blanket-including the whole variant.
+function isPartAlignable(def, part) {
+  if (def.variant === 'block' || def.variant === 'label-value') return true;
+  if (def.variant === 'qr') return part === 'title';
+  return false;
+}
 
 const H_ALIGN_OPTIONS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right']];
 const V_ALIGN_OPTIONS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
+const LOGO_SHAPE_OPTIONS = [['square', 'Square'], ['rounded', 'Rounded'], ['circle', 'Circle']];
 
 // ---------- Shared field widgets ----------
 // Every item-type panel below is built from the same small set of row
@@ -202,20 +233,22 @@ function AlignmentSection({ hAlign, vAlign, pageAlignItem }) {
   );
 }
 
-// Which label to show for a sub-part in its own panel, and whether it's
-// individually deletable — the only deletable parts are optional block
-// lines (Prompt 5); label/value (Due Date, Issue Date) and qr's title/body
-// are fixed content, styleable but never removable.
-function partMeta(def, part) {
-  if (part === 'title') return { label: 'Title', deletable: false };
+// Which label to show for a sub-part in its own panel. Whether it's
+// individually deletable is no longer decided here (Prompt 25) — it's
+// asked directly of EditorContext's `canDeleteBlockLine`, the exact same
+// guard `deleteBlockLine` itself uses, so this panel's "Delete this line"
+// button can never drift out of sync with what actually happens when it's
+// clicked.
+function partLabel(def, part) {
+  if (part === 'title') return 'Title';
   if (def.variant === 'block') {
     const line = def.render().lines.find((l) => l.key === part);
-    return { label: line?.label || 'Body', deletable: !!line && !line.required, required: line?.required };
+    return line?.label || 'Body';
   }
   if (def.variant === 'label-value') {
-    return { label: part === 'label' ? 'Label' : 'Value', deletable: false };
+    return part === 'label' ? 'Label' : 'Value';
   }
-  return { label: 'Body', deletable: false }; // qr's image half
+  return 'Body'; // qr's image half
 }
 
 // Part-level font-size fallback: label-value's two spans share its
@@ -230,16 +263,17 @@ function partDefaultFontSize(def, part) {
 }
 
 function PartProperties({ item, part, pageAlignItem }) {
-  const { updateItemPart, deleteBlockLine } = useEditor();
+  const { updateItemPart, deleteBlockLine, canDeleteBlockLine } = useEditor();
   const def = ELEMENT_TYPES[item.type];
-  const meta = partMeta(def, part);
+  const label = partLabel(def, part);
+  const deletable = canDeleteBlockLine(item.id, part);
   const partStyle = item[part] || {};
   const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
 
   return (
     <>
       <div className="panel__section-title">
-        {def.label} — {meta.label}
+        {def.label} — {label}
       </div>
 
       <div className="panel__section-title">Fill &amp; border</div>
@@ -266,7 +300,7 @@ function PartProperties({ item, part, pageAlignItem }) {
 
       <AlignmentSection
         hAlign={
-          def.variant === 'block' && (
+          isPartAlignable(def, part) && (
             <ContentAlignControl
               label="Align"
               options={H_ALIGN_OPTIONS}
@@ -279,12 +313,12 @@ function PartProperties({ item, part, pageAlignItem }) {
         pageAlignItem={pageAlignItem}
       />
 
-      {meta.deletable && (
+      {deletable && (
         <button className="tbtn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => deleteBlockLine(item.id, part)}>
           Delete this line
         </button>
       )}
-      {!meta.deletable && def.variant === 'block' && part !== 'title' && (
+      {!deletable && def.variant === 'block' && part !== 'title' && (
         <p className="empty-hint">This line is required and can't be removed.</p>
       )}
     </>
@@ -320,14 +354,45 @@ function ContentProperties({ items, pageAlignItem }) {
   const firstVariant = ELEMENT_TYPES[first.type].variant;
   const hideTextControls =
     items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider' || firstVariant === 'image');
-  const showHAlign = ALIGNABLE_VARIANTS.has(firstVariant) && !ELEMENT_TYPES[first.type].spread;
-  const showVAlign = ALIGNABLE_VARIANTS.has(firstVariant);
+  const showHAlign = H_ALIGNABLE_VARIANTS.has(firstVariant) && !ELEMENT_TYPES[first.type].spread;
+  const showVAlign = V_ALIGNABLE_VARIANTS.has(firstVariant);
+  // Prompt 24 item 4: Width/Height (and Rotation) — parity with shapes,
+  // which already had exact numeric fields; content items previously
+  // could only be resized by dragging handles. Hidden for a locked
+  // selection (the footer) the same way Alignment already is — a locked
+  // item is never moved/resized/rotated at all.
+  const allUnlocked = items.every((i) => !i.locked);
+  // Prompt 24 item 4: the logo shape/mask picker (elementCatalog.js's
+  // `shapeOptions`, wired up now — see CanvasItem's logoMaskRadius)
+  // replaces the generic Corner radius slider for `logo` specifically —
+  // a discrete mask, not a continuous px value. `divider`'s Corner
+  // radius is removed outright (audit finding): its render path hardcodes
+  // the rounded-end radius from `naturalHeight / 2`, so the slider never
+  // did anything — its sibling `line` shape already correctly has no such
+  // control.
+  const isLogo = first.type === 'logo';
+  const showCornerRadius = firstVariant !== 'divider' && !isLogo;
 
   return (
     <>
       <div className="panel__section-title">
         {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
       </div>
+
+      {allUnlocked && (
+        <>
+          <div className="panel__section-title">Position &amp; size</div>
+          <div className="prop-row">
+            <label>Width</label>
+            <input type="number" value={Math.round(first.width)} onChange={(e) => updateItems(ids, () => ({ width: Number(e.target.value) }))} />
+          </div>
+          <div className="prop-row">
+            <label>Height</label>
+            <input type="number" value={Math.round(first.height)} onChange={(e) => updateItems(ids, () => ({ height: Number(e.target.value) }))} />
+          </div>
+          <SliderRow label="Rotation" min={-180} max={180} value={first.rotation || 0} onChange={(v) => updateItems(ids, () => ({ rotation: v }))} />
+        </>
+      )}
 
       {/* Fill / Border / Radius — universal (Prompt 15): every content
           item renders a frame that can take a background/border/radius,
@@ -343,7 +408,26 @@ function ContentProperties({ items, pageAlignItem }) {
         <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
       </div>
       <SliderRow label="Border width" min={0} max={6} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
-      <SliderRow label="Corner radius" min={0} max={24} value={first.cornerRadius ?? 0} onChange={(v) => updateItems(ids, () => ({ cornerRadius: v }))} />
+      {isLogo && (
+        <div className="prop-row">
+          <label>Shape</label>
+          <div className="align-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {LOGO_SHAPE_OPTIONS.map(([v, text]) => (
+              <button
+                key={v}
+                className="tbtn"
+                style={{ fontWeight: (first.logoShape || 'square') === v ? 700 : 400 }}
+                onClick={() => updateItems(ids, () => ({ logoShape: v }))}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {showCornerRadius && (
+        <SliderRow label="Corner radius" min={0} max={24} value={first.cornerRadius ?? 0} onChange={(v) => updateItems(ids, () => ({ cornerRadius: v }))} />
+      )}
 
       {!hideTextControls && (
         <>
@@ -544,6 +628,48 @@ function ShapeProperties({ items, pageAlignItem }) {
   );
 }
 
+// Prompt 24 item 4: a mixed shape+content selection used to show nothing
+// but a label — no controls, no guidance. `fill`/`bgColor` are different
+// field names for the same "background" concept (shapes render `fill`,
+// content items render `bgColor`), so one shared color control writes to
+// whichever field actually applies to each selected item's own kind;
+// `borderColor`/`borderWidth` are already the same field name for both
+// kinds, so those just apply directly. Corner radius is deliberately left
+// out — it means different things per shape sub-type (roundedRect only)
+// and isn't "genuinely common" the way fill/border are.
+function MixedProperties({ items }) {
+  const { updateItems } = useEditor();
+  const ids = items.map((i) => i.id);
+  const first = items[0];
+  const firstBg = first.kind === 'shape' ? first.fill : first.bgColor;
+  const firstBorderColor = first.borderColor === 'transparent' ? '#000000' : first.borderColor || '#262420';
+
+  return (
+    <>
+      <div className="panel__section-title">{items.length} items selected (mixed)</div>
+      <div className="prop-row">
+        <label>Fill / Background</label>
+        <input
+          type="color"
+          value={firstBg || '#faf9f6'}
+          onChange={(e) => {
+            const v = e.target.value;
+            updateItems(ids, (item) => (item.kind === 'shape' ? { fill: v } : { bgColor: v }));
+          }}
+        />
+      </div>
+      <div className="prop-row">
+        <label>Border color</label>
+        <input type="color" value={firstBorderColor} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
+      </div>
+      <SliderRow label="Border width" min={0} max={8} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
+      <p className="empty-hint" style={{ marginTop: 10 }}>
+        Move, resize, and rotate this selection together using the shared handles on the canvas.
+      </p>
+    </>
+  );
+}
+
 export default function PropertiesPanel() {
   const { template, selection, saveState } = useEditor();
   const selectedItems = template.items.filter((i) => selection.ids.includes(i.id));
@@ -573,7 +699,7 @@ export default function PropertiesPanel() {
             <ShapeProperties items={selectedItems} pageAlignItem={pageAlignItem} />
           )}
           {selectedItems.length > 0 && kinds.size > 1 && (
-            <div className="panel__section-title">{selectedItems.length} items selected (mixed)</div>
+            <MixedProperties items={selectedItems} />
           )}
         </>
       )}

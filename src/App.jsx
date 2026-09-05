@@ -11,7 +11,12 @@ import ContextMenu from './components/ContextMenu';
 
 const LEFT_WIDTH = 240;
 const RIGHT_WIDTH = 280;
-const RAIL_WIDTH = 24;
+// Prompt 24 item 2: wide enough to fully contain the 22px toggle button
+// plus a few px of breathing room on both sides when collapsed — the
+// previous 24px was narrower than the button's own footprint, so the
+// button spilled past the column's (and, for the right panel, the app's
+// own outer) edge.
+const RAIL_WIDTH = 32;
 
 function EditorShell() {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -29,34 +34,71 @@ function EditorShell() {
           gridTemplateColumns: `${leftPanelCollapsed ? RAIL_WIDTH : LEFT_WIDTH}px 1fr ${rightPanelCollapsed ? RAIL_WIDTH : RIGHT_WIDTH}px`,
         }}
       >
-        <div className="panel-wrap">
-          <button
-            className="panel-rail__btn"
-            onClick={toggleLeftPanel}
-            aria-label={leftPanelCollapsed ? 'Expand elements panel' : 'Collapse elements panel'}
-            title={leftPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
-          >
-            {leftPanelCollapsed ? '▶' : '◀'}
-          </button>
-          {!leftPanelCollapsed && (
-            <div className="panel">
-              <ElementLibraryPanel />
-              <div style={{ height: 1, background: 'var(--border-glass)', margin: '16px 0' }} />
-              <ShapeLibraryPanel />
-            </div>
+        {/* Prompt 24 item 1: the toggle sits inline in a small header row
+            (label + icon-only button, normal flow — not a dedicated
+            full-width strip, not absolutely positioned over the panel's
+            own content) when expanded; collapsed, `.panel-wrap` just
+            centers the lone button in the narrow rail — see item 2's own
+            comment on why that's a distinct layout, not the same button
+            re-positioned. */}
+        <div className={`panel-wrap${leftPanelCollapsed ? ' panel-wrap--collapsed' : ''}`}>
+          {leftPanelCollapsed ? (
+            <button
+              className="panel-toggle-btn"
+              onClick={toggleLeftPanel}
+              aria-label="Expand elements panel"
+              title="Expand panel"
+            >
+              ▶
+            </button>
+          ) : (
+            <>
+              <div className="panel-header">
+                <span className="panel-header__label">Elements</span>
+                <button
+                  className="panel-toggle-btn"
+                  onClick={toggleLeftPanel}
+                  aria-label="Collapse elements panel"
+                  title="Collapse panel"
+                >
+                  ◀
+                </button>
+              </div>
+              <div className="panel">
+                <ElementLibraryPanel />
+                <div style={{ height: 1, background: 'var(--border-glass)', margin: '16px 0' }} />
+                <ShapeLibraryPanel />
+              </div>
+            </>
           )}
         </div>
         <EditorCanvas />
-        <div className="panel-wrap panel-wrap--right">
-          <button
-            className="panel-rail__btn"
-            onClick={toggleRightPanel}
-            aria-label={rightPanelCollapsed ? 'Expand properties panel' : 'Collapse properties panel'}
-            title={rightPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
-          >
-            {rightPanelCollapsed ? '◀' : '▶'}
-          </button>
-          {!rightPanelCollapsed && <PropertiesPanel />}
+        <div className={`panel-wrap panel-wrap--right${rightPanelCollapsed ? ' panel-wrap--collapsed' : ''}`}>
+          {rightPanelCollapsed ? (
+            <button
+              className="panel-toggle-btn"
+              onClick={toggleRightPanel}
+              aria-label="Expand properties panel"
+              title="Expand panel"
+            >
+              ◀
+            </button>
+          ) : (
+            <>
+              <div className="panel-header">
+                <span className="panel-header__label">Properties</span>
+                <button
+                  className="panel-toggle-btn"
+                  onClick={toggleRightPanel}
+                  aria-label="Collapse properties panel"
+                  title="Collapse panel"
+                >
+                  ▶
+                </button>
+              </div>
+              <PropertiesPanel />
+            </>
+          )}
         </div>
       </div>
       {previewOpen && <PreviewModal onClose={() => setPreviewOpen(false)} />}

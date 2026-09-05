@@ -12,10 +12,18 @@ import { copyFormatting, readFormatting, captureFormatting, formattingPatch } fr
 // selected item support it," not the intersection, so a mixed shape+
 // content selection still shows Duplicate and acts on just the shape(s),
 // rather than the whole action disappearing because one member can't.
+// Prompt 25: 'delete' used to live in this intersection set too, but that
+// made a required-but-unlocked item's OWN capability set include it
+// unconditionally — required-ness only becomes "can't actually be
+// deleted" in combination with the rest of the current template (is this
+// its last remaining instance?), which a single item can't answer about
+// itself the way `item.locked` alone can. That whole-selection question
+// is `canDeleteSelection` (EditorContext), checked separately below —
+// same "some, not every" pattern `canDuplicate` already uses, so a mixed
+// selection still deletes whatever in it actually can be.
 function itemCapabilities(item) {
   const caps = new Set();
   if (item.locked) return caps; // the footer: selectable, but no destructive/structural actions
-  caps.add('delete');
   if (item.kind === 'content' || item.type === 'roundedRect') caps.add('reset-radius');
   return caps;
 }
@@ -23,7 +31,7 @@ function itemCapabilities(item) {
 export default function ContextMenu() {
   const {
     template, selection, setSelection, contextMenu, setContextMenu,
-    duplicateItems, deleteItems, updateItems, updateItemPart, groupItems,
+    duplicateItems, deleteItems, canDeleteSelection, updateItems, updateItemPart, groupItems,
   } = useEditor();
 
   const close = () => setContextMenu(null);
@@ -66,6 +74,11 @@ export default function ContextMenu() {
   // selection; `canCopy` narrows the existing single-whole-item scope to
   // shapes only, since copying a lone content item would do nothing.
   const canDuplicate = selectedItems.some((i) => i.kind === 'shape' && !i.locked);
+  // Prompt 25: same "some, not every" shape canDuplicate uses — a mixed
+  // selection of deletable and required/locked items should still offer
+  // Delete and act on just the deletable member(s), not disappear because
+  // one member can't go.
+  const canDelete = canDeleteSelection(selection.ids);
   const canCopy = !!single && !part && single.kind === 'shape';
   const canCopyFormatting = !!single;
   const canPasteFormatting = !!formatClip && selectedItems.length > 0;
@@ -115,7 +128,7 @@ export default function ContextMenu() {
   if (canGroup) {
     actions.push({ key: 'group', label: 'Group', run: () => groupItems(selection.ids) });
   }
-  if (commonCaps.has('delete')) {
+  if (canDelete) {
     actions.push({ key: 'delete', label: 'Delete', run: () => deleteItems(selection.ids) });
   }
 

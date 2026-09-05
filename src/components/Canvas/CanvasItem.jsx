@@ -36,25 +36,29 @@ function defaultColumnWidths(count) {
 
 const MIN_COLUMN_PCT = 6;
 const NOOP = () => {};
-// Prompt 23 item 5: resize handles are square and sit centered directly ON
-// the item's own border (a deliberate reversal of Prompt 12's earlier
-// "float outside the border" fix) — HALF_HANDLE is half the handle's own
-// square size, so by default (no offset) each handle's outward-facing half
-// extends exactly that far past the border. Adaptive (Prompt 14, kept):
-// when a neighbor sits closer than HALF_HANDLE away, the handle is pulled
-// INWARD (never past its own border, i.e. never actually overlapping the
-// neighbor) just enough that its outward half stops flush at the
-// neighbor's own edge instead of visually oversitting onto it — down to
-// fully inside the item's own box in the tightest case, exactly the same
-// "shrink, don't overlap" idea Prompt 14 introduced, just recalibrated
-// for handles that now start AT the border instead of HANDLE_GAP beyond
-// it.
+// Prompt 24 item 3: Prompt 23 centered handles on the item's own literal
+// box edge (coordinate 0) — mathematically a straddle of THAT edge, but
+// for the vast majority of items (no CSS border of their own), the only
+// visible "border" is the purple SELECTION OUTLINE (`.item--selected::
+// after`, `inset: -4px` — i.e. drawn 4px OUTSIDE the item's true edge).
+// Relative to that visible line, a handle centered at 0 sits entirely
+// between it and the item's own content — reads as "fully inside" the
+// selection rectangle, exactly the bug reported. Centering on
+// `SELECTION_OUTLINE_INSET` instead (matching that same 4px) makes the
+// handle straddle the line a user can actually see.
+// `HALF_HANDLE` is half the handle's own square size (see
+// `.item__resize-handle` in editor.css). Adaptive (Prompt 14, recalibrated
+// again here): a neighbor closer than the handle's ideal outward reach
+// pulls its center back toward (and, in the tightest case, past) the
+// item's own true edge — down to sitting fully inside the item, its
+// outward point flush with the neighbor — never past it.
+export const SELECTION_OUTLINE_INSET = 4;
 const HALF_HANDLE = 4;
 function adaptiveHandleOffset(fx, negClearance, posClearance) {
   if (fx === 0.5) return 0;
   const clearance = fx === 1 ? posClearance : negClearance;
-  const capped = clearance === Infinity ? 0 : Math.max(-HALF_HANDLE, Math.min(0, clearance - HALF_HANDLE));
-  return fx === 1 ? capped : -capped;
+  const outward = Math.max(-HALF_HANDLE, Math.min(SELECTION_OUTLINE_INSET, clearance - HALF_HANDLE));
+  return fx === 1 ? outward : -outward;
 }
 
 // Text-bearing variants whose box no longer scales its content (Prompt
@@ -328,8 +332,16 @@ function ContentBody({ item, isPartSelected, onSelectPart, isPartHovered, onPart
       // to stay scannable, so only its surrounding box (background/border)
       // is user-styleable, not the code's own ink color.
       const bodyBoxStyle = partInlineStyle(item, 'body', undefined);
+      // Prompt 24 item 4: qr's title text now respects the whole-item
+      // horizontal content-align control (see PropertiesPanel's
+      // H_ALIGNABLE_VARIANTS) the same way block's does — via the shared
+      // container's own `textAlign`, inherited by the title unless it has
+      // its own per-part override (partInlineStyle only sets `textAlign`
+      // when the part actually has one). The QR pattern itself is
+      // centered by `.item__qr-wrap`'s own flex rule regardless — content-
+      // align only ever affects the title text run.
       return (
-        <div className="item__block">
+        <div className="item__block" style={alignStyle()}>
           <div
             className={`item__block-title${isPartSelected('title') ? ' item__block-title--selected' : isPartHovered('title') ? ' item__block-title--hover' : ''}`}
             style={titleStyle}
@@ -472,6 +484,21 @@ function shapeBorderRadius(item) {
   if (item.type === 'ellipse') return '50%';
   if (item.type === 'line') return item.naturalHeight / 2;
   return item.radius;
+}
+
+// Prompt 24 item 4: the logo shape/mask picker (elementCatalog.js's
+// `shapeOptions: ['square','rounded','circle']`, defined since the
+// original spec but never wired to anything until now) — `item.logoShape`
+// (set by PropertiesPanel) picks the radius. Returns null for every other
+// type, including `signatureImage` (no `shapeOptions` of its own — this
+// picker is specific to `logo`), so callers fall back to the generic
+// `item.cornerRadius` control instead.
+function logoMaskRadius(item) {
+  if (item.type !== 'logo') return null;
+  const shape = item.logoShape || 'square';
+  if (shape === 'circle') return '50%';
+  if (shape === 'rounded') return 10;
+  return 0;
 }
 
 // A shape's fill/border/radius IS its content — rendered at natural size
@@ -1340,10 +1367,14 @@ export default function CanvasItem({ item, readOnly = false }) {
   // just the table it started as) — the shape's own radius (including the
   // ellipse/line special cases) for shapes — otherwise a round shape
   // would get a square selection box.
+  // Prompt 24 item 4: `logo`'s shape/mask picker overrides the generic
+  // cornerRadius here when set — same frame field, so the selection
+  // outline (`border-radius: inherit`) stays in sync either way.
+  const logoRadius = item.kind === 'content' ? logoMaskRadius(item) : null;
   const frameStyle =
     item.kind === 'content'
       ? {
-          borderRadius: item.cornerRadius ?? 0,
+          borderRadius: logoRadius !== null ? logoRadius : item.cornerRadius ?? 0,
           borderColor: item.borderColor,
           borderWidth: item.borderWidth ? `${item.borderWidth}px` : undefined,
           borderStyle: item.borderWidth ? 'solid' : undefined,
@@ -1406,6 +1437,13 @@ export default function CanvasItem({ item, readOnly = false }) {
           display: isTextVariant ? 'flex' : undefined,
           flexDirection: isTextVariant ? 'column' : undefined,
           justifyContent: isTextVariant ? vAlignToFlex(item.contentAlignY) : undefined,
+          // Prompt 24 item 4: the logo shape/mask picker has to clip the
+          // actual rendered <img> pixels, not just round the outer frame's
+          // own background (which sits entirely behind this wrapper and
+          // is never itself visible) — `.item__scale` already clips its
+          // content via `overflow: hidden`, so giving IT the same radius
+          // is what makes the mask genuinely visible.
+          borderRadius: logoRadius !== null ? logoRadius : undefined,
         }}
       >
         {item.kind === 'shape' ? (

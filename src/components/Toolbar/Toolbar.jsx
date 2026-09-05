@@ -5,7 +5,8 @@ import { LogoSVG, WordmarkSVG } from '../Brand';
 export default function Toolbar({ onPreview }) {
   const {
     canUndo, canRedo, undo, redo, runSave,
-    template, selection, deleteItems, deleteBlockLine, duplicateItems, groupItems,
+    template, selection, deleteItems, canDeleteSelection, deleteBlockLine, canDeleteBlockLine,
+    duplicateItems, groupItems,
     zoom, setZoom, canvasViewportRef,
   } = useEditor();
 
@@ -24,7 +25,15 @@ export default function Toolbar({ onPreview }) {
   };
   const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200];
 
-  const hasSelection = selection.ids.length > 0;
+  // Prompt 25: mirrors handleDelete's own branching below — a single
+  // selected sub-part's own line-level deletability when one is selected,
+  // otherwise whether ANY item in the whole selection would actually be
+  // removed (a required/locked item, or a mixed selection made entirely
+  // of them, must show as disabled here rather than clickable-but-inert).
+  const canDelete =
+    selection.part && selection.ids.length === 1
+      ? canDeleteBlockLine(selection.ids[0], selection.part.key)
+      : canDeleteSelection(selection.ids);
   const canGroup = selection.ids.length >= 2;
   // Prompt 21 item 2: content items are single-instance and can't be
   // duplicated — reflect that in the button's own enabled state (rather
@@ -66,7 +75,7 @@ export default function Toolbar({ onPreview }) {
         Duplicate <span className="tbtn__key">⌘D</span>
       </button>
 
-      <button className="tbtn" disabled={!hasSelection} onClick={handleDelete}>
+      <button className="tbtn" disabled={!canDelete} onClick={handleDelete}>
         Delete <span className="tbtn__key">Del</span>
       </button>
 

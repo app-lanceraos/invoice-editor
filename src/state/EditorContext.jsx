@@ -168,6 +168,22 @@ export function EditorProvider({ children }) {
     [itemsById]
   );
 
+  // Prompt 25: "can any of these actually be deleted" for a whole
+  // SELECTION (not just one item) — the same remaining-items snapshot
+  // deleteItems itself computes (every id in the selection removed at
+  // once, not one at a time — see that function's own comment on why a
+  // required type's LAST TWO selected instances can't both go even
+  // though either alone could), reused here so a UI affordance's
+  // enabled/disabled state can never drift from what deleteItems will
+  // actually do with the same ids.
+  const canDeleteSelection = useCallback(
+    (ids) => {
+      const remaining = template.items.filter((i) => !ids.includes(i.id));
+      return ids.some((id) => canDeleteItem(id, remaining));
+    },
+    [template, canDeleteItem]
+  );
+
   const deleteItems = useCallback(
     (ids) => {
       const remaining = template.items.filter((i) => !ids.includes(i.id));
@@ -179,6 +195,27 @@ export function EditorProvider({ children }) {
     [template, commit, canDeleteItem]
   );
 
+  // Whether one optional line of a block-variant item could be removed —
+  // factored out of deleteBlockLine so a UI affordance (PropertiesPanel's
+  // "Delete this line" button, the Toolbar/keyboard Delete action when a
+  // part happens to be selected) can ask the exact same question
+  // deleteBlockLine itself will, rather than re-deriving these same
+  // guard conditions a second time and risking the two drifting apart.
+  const canDeleteBlockLine = useCallback(
+    (itemId, lineKey) => {
+      if (lineKey === 'title') return false;
+      const item = itemsById.get(itemId);
+      if (!item || item.kind !== 'content') return false;
+      const def = ELEMENT_TYPES[item.type];
+      if (def.variant !== 'block') return false;
+      const line = def.render().lines.find((l) => l.key === lineKey);
+      if (!line || line.required) return false;
+      if ((item.hiddenLines || []).includes(lineKey)) return false;
+      return true;
+    },
+    [itemsById]
+  );
+
   // Removes one optional line from a block-variant item's rendered body
   // (title is never a removable line) — blocked the same way deleteItems
   // blocks a required top-level item, just at line granularity. The
@@ -186,19 +223,13 @@ export function EditorProvider({ children }) {
   // item itself, alongside its other flat props.
   const deleteBlockLine = useCallback(
     (itemId, lineKey) => {
-      if (lineKey === 'title') return;
+      if (!canDeleteBlockLine(itemId, lineKey)) return;
       const item = itemsById.get(itemId);
-      if (!item || item.kind !== 'content') return;
-      const def = ELEMENT_TYPES[item.type];
-      if (def.variant !== 'block') return;
-      const line = def.render().lines.find((l) => l.key === lineKey);
-      if (!line || line.required) return;
-      if ((item.hiddenLines || []).includes(lineKey)) return;
       const hiddenLines = [...(item.hiddenLines || []), lineKey];
       commit({ ...template, items: template.items.map((i) => (i.id === itemId ? { ...i, hiddenLines } : i)) });
       setSelection({ ids: [itemId], part: null });
     },
-    [template, commit, itemsById]
+    [template, commit, itemsById, canDeleteBlockLine]
   );
 
   // Prompt 21 item 2: content items are single-instance, full stop — a
@@ -345,7 +376,9 @@ export function EditorProvider({ children }) {
     updateItems,
     updateItemPart,
     deleteItems,
+    canDeleteSelection,
     deleteBlockLine,
+    canDeleteBlockLine,
     duplicateItems,
     addItemsFromClipboard,
     addShape,
