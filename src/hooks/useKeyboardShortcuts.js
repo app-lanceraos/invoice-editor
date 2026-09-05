@@ -38,9 +38,19 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
         return;
       }
 
+      // Prompt 23 item 3: gated the same way the Toolbar button and
+      // ContextMenu item already are — "at least one shape in the
+      // selection" (duplicateItems itself would silently no-op on a
+      // content-only selection anyway, but every SURFACE that offers
+      // Duplicate should agree on when it's actually available, not just
+      // the underlying data-layer guard).
       if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault();
-        if (selection.ids.length > 0) duplicateItems(selection.ids);
+        const canDuplicate = selection.ids.some((id) => {
+          const item = template.items.find((i) => i.id === id);
+          return item && item.kind === 'shape' && !item.locked;
+        });
+        if (canDuplicate) duplicateItems(selection.ids);
         return;
       }
 

@@ -5,23 +5,28 @@ import { useEditor } from '../../state/EditorContext';
 // Renders just the content-element toggle list (no outer .panel wrapper —
 // this is composed into LeftPanel alongside the shape library). "On" means
 // at least one instance of that type currently exists on the canvas;
-// toggling off removes every instance (blocked for required types).
+// toggling off removes every instance.
+//
+// Prompt 23 item 2: required elements are never listed here at all — every
+// element defaults on (Prompt 21), so a required type's toggle could never
+// actually be switched off, and a permanently-on, permanently-disabled
+// toggle has no function. Only genuinely optional types (a user can turn
+// them on AND off) belong in this list.
 export default function ElementLibraryPanel() {
   const { template, toggleContentItem } = useEditor();
 
   return (
     <>
       <div className="panel__section-title">Invoice elements</div>
-      {Object.entries(ELEMENT_TYPES).filter(([, def]) => !def.hidden).map(([type, def]) => {
+      {Object.entries(ELEMENT_TYPES).filter(([, def]) => !def.hidden && !def.required).map(([type, def]) => {
         const isOn = template.items.some((i) => i.kind === 'content' && i.type === type);
-        const isLocked = def.required;
         return (
-          <div key={type} className={`lib-item${isLocked ? ' lib-item--locked' : ''}`}>
-            <span>{def.label}{def.required ? ' *' : ''}</span>
+          <div key={type} className="lib-item">
+            <span>{def.label}</span>
             <div
               className={`lib-item__toggle${isOn ? ' lib-item__toggle--on' : ''}`}
-              onClick={() => !isLocked && toggleContentItem(type)}
-              title={isLocked ? 'Required — always included' : 'Toggle on/off'}
+              onClick={() => toggleContentItem(type)}
+              title="Toggle on/off"
             >
               <div className="lib-item__toggle__dot" />
             </div>

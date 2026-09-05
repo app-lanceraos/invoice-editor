@@ -36,22 +36,24 @@ function defaultColumnWidths(count) {
 
 const MIN_COLUMN_PCT = 6;
 const NOOP = () => {};
-// How far outside the item's own border each resize handle floats —
-// standard design-tool convention (a corner/edge dot hovering just clear
-// of the selection outline, not sitting on top of it). Adaptive (Prompt
-// 14): a handle facing a neighbor too close for the full HANDLE_GAP
-// shrinks just enough to stop short of it — down to flush with the
-// item's own border, never negative/inside it — instead of visually
-// oversitting onto the neighbor's own clickable area (the Prompt 13
-// audit's finding, at the Prompt 12 minimum 2px gap). `HALF_HANDLE`
-// accounts for the dot's own visual radius, so its EDGE clears the
-// neighbor, not just the coordinate it's centered on.
-const HANDLE_GAP = 8;
-const HALF_HANDLE = 6;
+// Prompt 23 item 5: resize handles are square and sit centered directly ON
+// the item's own border (a deliberate reversal of Prompt 12's earlier
+// "float outside the border" fix) — HALF_HANDLE is half the handle's own
+// square size, so by default (no offset) each handle's outward-facing half
+// extends exactly that far past the border. Adaptive (Prompt 14, kept):
+// when a neighbor sits closer than HALF_HANDLE away, the handle is pulled
+// INWARD (never past its own border, i.e. never actually overlapping the
+// neighbor) just enough that its outward half stops flush at the
+// neighbor's own edge instead of visually oversitting onto it — down to
+// fully inside the item's own box in the tightest case, exactly the same
+// "shrink, don't overlap" idea Prompt 14 introduced, just recalibrated
+// for handles that now start AT the border instead of HANDLE_GAP beyond
+// it.
+const HALF_HANDLE = 4;
 function adaptiveHandleOffset(fx, negClearance, posClearance) {
   if (fx === 0.5) return 0;
   const clearance = fx === 1 ? posClearance : negClearance;
-  const capped = clearance === Infinity ? HANDLE_GAP : Math.max(0, Math.min(HANDLE_GAP, clearance - HALF_HANDLE));
+  const capped = clearance === Infinity ? 0 : Math.max(-HALF_HANDLE, Math.min(0, clearance - HALF_HANDLE));
   return fx === 1 ? capped : -capped;
 }
 

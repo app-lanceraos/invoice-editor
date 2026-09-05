@@ -305,7 +305,11 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: true,
     variant: 'divider',
-    defaultBox: { x: 32, y: 845, width: 110, height: 3 },
+    // Prompt 23 item 6: was 110x3 — the same full width as signatureLabel
+    // below it, visually oversized next to signatureImage's much smaller
+    // 37px-wide mark. Sized closer to the image it sits under, thin
+    // enough to read as a rule rather than a bar.
+    defaultBox: { x: 32, y: 845, width: 70, height: 2 },
     render: () => null,
   },
   signatureLabel: {

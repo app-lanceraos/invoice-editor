@@ -11,13 +11,44 @@ import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fo
 const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
 
 // Variants where "how content sits inside its own box" is a meaningful,
-// independent choice — distinct from AlignmentControls below, which moves
-// the box itself. `table` cells have their own per-column left/right rule,
-// so it's left out entirely; a `spread` label-value item (Subtotal etc.)
-// already spreads label/value with `justify-content: space-between`, so it
-// only loses the HORIZONTAL control (see showHorizontalAlign below) —
-// vertical position doesn't fight the spread, so it keeps that one.
+// independent choice — distinct from the page-alignment buttons below,
+// which move the box itself. `table` cells have their own per-column
+// left/right rule, so it's left out entirely; a `spread` label-value item
+// (Subtotal etc.) already spreads label/value with `justify-content:
+// space-between`, so it only loses the HORIZONTAL control (see showHAlign
+// below) — vertical position doesn't fight the spread, so it keeps that
+// one.
 const ALIGNABLE_VARIANTS = new Set(['text', 'note', 'block', 'label-value']);
+
+const H_ALIGN_OPTIONS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right']];
+const V_ALIGN_OPTIONS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
+
+// ---------- Shared field widgets ----------
+// Every item-type panel below is built from the same small set of row
+// widgets, assembled in the same category order (Prompt 23 item 9):
+// Position/Size/Rotation, Fill/Border/Radius, Typography, Alignment
+// (content + page), then whatever's type-specific, last.
+
+// Prompt 23 item 7: every slider pairs with an exact-value numeric input —
+// dragging the slider updates the number, typing the number updates the
+// slider, both drive the same `onChange`. Used everywhere a px-valued
+// slider exists (border width, corner radius, cell padding, ...); NOT used
+// for rotation (degrees, not px — out of this control's scope).
+function SliderRow({ label, min, max, step = 1, value, onChange }) {
+  const handle = (e) => {
+    const v = Number(e.target.value);
+    if (!Number.isNaN(v)) onChange(v);
+  };
+  return (
+    <div className="prop-row">
+      <label>{label}</label>
+      <div className="slider-with-input">
+        <input type="range" min={min} max={max} step={step} value={value} onChange={handle} />
+        <input type="number" min={min} max={max} step={step} value={value} onChange={handle} />
+      </div>
+    </div>
+  );
+}
 
 // Font-family + font-weight + font-size controls, shared by whole-item and
 // per-part property panels alike. `style` is whatever flat style object (an
@@ -71,9 +102,7 @@ function FontControls({ style, onChange, defaultSize }) {
 // — how content sits inside its own box, applied to the WHOLE item (not
 // per-part; block's per-line horizontal override, when wanted, is set
 // from PartProperties instead — vertical has no per-part equivalent,
-// block's lines move together as one group). Shown independent of
-// hideTextControls, since it's meaningful even for variants (block,
-// label-value) whose text itself is only editable through its parts.
+// block's lines move together as one group).
 function ContentAlignControl({ label, options, value, defaultValue, onChange }) {
   return (
     <div className="prop-row">
@@ -94,206 +123,14 @@ function ContentAlignControl({ label, options, value, defaultValue, onChange }) 
   );
 }
 
-const H_ALIGN_OPTIONS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right']];
-const V_ALIGN_OPTIONS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
-
-// Which label to show for a sub-part in its own panel, and whether it's
-// individually deletable — the only deletable parts are optional block
-// lines (Prompt 5); label/value (Due Date, Issue Date) and qr's title/body
-// are fixed content, styleable but never removable.
-function partMeta(def, part) {
-  if (part === 'title') return { label: 'Title', deletable: false };
-  if (def.variant === 'block') {
-    const line = def.render().lines.find((l) => l.key === part);
-    return { label: line?.label || 'Body', deletable: !!line && !line.required, required: line?.required };
-  }
-  if (def.variant === 'label-value') {
-    return { label: part === 'label' ? 'Label' : 'Value', deletable: false };
-  }
-  return { label: 'Body', deletable: false }; // qr's image half
-}
-
-// Part-level font-size fallback: label-value's two spans share its
-// container size (11 for a `strong` item like Total due, 10 otherwise),
-// title uses the block-title 8px default, everything else is a block body
-// line at 9px — mirrors the fallbacks CanvasItem.jsx's ContentBody passes
-// to partInlineStyle() for the same parts.
-function partDefaultFontSize(def, part) {
-  if (def.variant === 'label-value') return def.strong ? 11 : 10;
-  if (part === 'title') return 8;
-  return 9;
-}
-
-function PartProperties({ item, part }) {
-  const { updateItemPart, deleteBlockLine } = useEditor();
-  const def = ELEMENT_TYPES[item.type];
-  const meta = partMeta(def, part);
-  const partStyle = item[part] || {};
-  const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
-
-  return (
-    <>
-      <div className="panel__section-title">
-        {def.label} — {meta.label}
-      </div>
-      <div className="prop-row">
-        <label>Text color</label>
-        <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
-      </div>
-      <FontControls
-        style={partStyle}
-        onChange={(patch) => updateItemPart(item.id, part, patch)}
-        defaultSize={partDefaultFontSize(def, part)}
-      />
-      {def.variant === 'block' && (
-        <ContentAlignControl
-          label="Align"
-          options={H_ALIGN_OPTIONS}
-          defaultValue="left"
-          value={partStyle.contentAlign}
-          onChange={(v) => updateItemPart(item.id, part, { contentAlign: v })}
-        />
-      )}
-      <div className="prop-row">
-        <label>Background</label>
-        <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={partStyle.borderColor || '#262420'} onChange={(e) => updateItemPart(item.id, part, { borderColor: e.target.value })} />
-      </div>
-      <div className="prop-row">
-        <label>Border width</label>
-        <input type="range" min="0" max="6" value={partStyle.borderWidth || 0} onChange={(e) => updateItemPart(item.id, part, { borderWidth: Number(e.target.value) })} />
-      </div>
-      {meta.deletable && (
-        <button className="tbtn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => deleteBlockLine(item.id, part)}>
-          Delete this line
-        </button>
-      )}
-      {!meta.deletable && def.variant === 'block' && part !== 'title' && (
-        <p className="empty-hint">This line is required and can't be removed.</p>
-      )}
-    </>
-  );
-}
-
-// Whole-item font-size fallback per variant — mirrors the fallbacks
-// CanvasItem.jsx's ContentBody passes to fontStyle() for that same variant.
-// (`label-value` never reaches this: it's a SUB_PART_VARIANT, so
-// hideTextControls suppresses the whole-item font row entirely — table's
-// own dedicated panel below has a separate body-font-size control, but the
-// generic whole-item one here still applies too, since `table` isn't a
-// SUB_PART_VARIANT and ContentBody's td cells do read item.fontFamily/
-// fontWeight directly.)
-function variantDefaultFontSize(variant) {
-  if (variant === 'table') return 8.5;
-  if (variant === 'footer') return 7;
-  return 10; // text, note
-}
-
-function ContentProperties({ items }) {
-  const { updateItems } = useEditor();
-  const ids = items.map((i) => i.id);
-  const first = items[0];
-  // block/qr/label-value's own text lives in their sub-parts (styled via
-  // PartProperties instead) — the whole-item selection here only covers
-  // their outer card (background/border), not a font a whole-item control
-  // would even apply to. Every other variant is a single flat text run,
-  // where the whole-item controls ARE the text controls — except
-  // 'divider', which has no text at all (its color is the Background
-  // control below, matching how the shape-line's color works), and
-  // 'image', whose Logo/Signature types now render a real asset
-  // (public/favicon.svg, public/signature.png) rather than a
-  // currentColor-recolorable mark — text color and font no longer apply
-  // to either. Background/border stay available below regardless.
-  const firstVariant = ELEMENT_TYPES[first.type].variant;
-  const hideTextControls =
-    items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider' || firstVariant === 'image');
-
-  return (
-    <>
-      <div className="panel__section-title">
-        {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
-      </div>
-      {!hideTextControls && (
-        <>
-          <div className="prop-row">
-            <label>Text color</label>
-            <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
-          </div>
-          <FontControls
-            style={first}
-            onChange={(patch) => updateItems(ids, () => patch)}
-            defaultSize={variantDefaultFontSize(firstVariant)}
-          />
-        </>
-      )}
-      {/* A `spread` label-value item (Subtotal etc.) already spreads
-          label/value across the row via justify-content — the horizontal
-          control would just fight that, so it's the one thing excluded
-          here that ALIGNABLE_VARIANTS alone wouldn't catch. Vertical
-          position doesn't conflict with the spread, so it's unaffected. */}
-      {ALIGNABLE_VARIANTS.has(firstVariant) && !ELEMENT_TYPES[first.type].spread && (
-        <ContentAlignControl
-          label="Align"
-          options={H_ALIGN_OPTIONS}
-          defaultValue="left"
-          value={first.contentAlign}
-          onChange={(v) => updateItems(ids, () => ({ contentAlign: v }))}
-        />
-      )}
-      {ALIGNABLE_VARIANTS.has(firstVariant) && (
-        <ContentAlignControl
-          label="Vertical"
-          options={V_ALIGN_OPTIONS}
-          defaultValue="top"
-          value={first.contentAlignY}
-          onChange={(v) => updateItems(ids, () => ({ contentAlignY: v }))}
-        />
-      )}
-      <div className="prop-row">
-        <label>Background</label>
-        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border width</label>
-        <input type="range" min="0" max="6" value={first.borderWidth || 0} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
-      </div>
-      {/* Universal (Prompt 15) — every content item renders a frame that
-          can take a radius (Logo/Signature/QR included, since their
-          border/background live on this same outer frame — see
-          CanvasItem.jsx's frameStyle), defaulting to 0 rather than the
-          table-only control's old implicit 4. Table keeps its own control
-          under "Table — Shape" removed below now that this one covers the
-          same `item.cornerRadius` field — no need for two. */}
-      <div className="prop-row">
-        <label>Corner radius</label>
-        <input type="range" min="0" max="24" value={first.cornerRadius ?? 0} onChange={(e) => updateItems(ids, () => ({ cornerRadius: Number(e.target.value) }))} />
-      </div>
-    </>
-  );
-}
-
-// Repositions the item against the PAGE's own width/height — never
-// relative to other items — respecting the same kind-aware boundary each
-// item already can't cross (getItemBounds: true edge for a shape,
-// PAGE_PADDING inset for content), so "Align Left" can't itself produce a
-// position the boundary clamp would immediately have to correct.
-//
-// Prompt 16 item 4: setting x/y directly here used to bypass collision
-// entirely — aligning B onto a spot A already occupies just overlapped
-// them. Content items now route through the exact same cascading-push
-// resolution a drag uses (resolveMoveCollision): aligning pushes whatever
-// is in the way (and transitively whatever THAT touches) rather than
-// landing on top of it, capped only at a genuinely immovable neighbor or
-// the page/footer boundary. Shapes stay exempt, same as everywhere else
-// collision applies — there's nothing to push them into or out of.
-function AlignmentControls({ item }) {
+// Repositions an item against the PAGE's own width/height — never relative
+// to other items — respecting the same kind-aware boundary each item
+// already can't cross (getItemBounds: true edge for a shape, PAGE_PADDING
+// inset for content). Content items route through the exact same
+// cascading-push resolution a drag uses (resolveMoveCollision): aligning
+// pushes whatever is in the way rather than landing on top of it. Shapes
+// stay exempt, same as everywhere else collision applies.
+function PageAlignButtons({ item }) {
   const { template, updateItem, updateItems, effectiveSizes } = useEditor();
   const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
 
@@ -337,16 +174,217 @@ function AlignmentControls({ item }) {
   };
 
   return (
+    <div className="align-grid">
+      <button className="tbtn" onClick={() => alignX('left')}>Left</button>
+      <button className="tbtn" onClick={() => alignX('center')}>Center</button>
+      <button className="tbtn" onClick={() => alignX('right')}>Right</button>
+      <button className="tbtn" onClick={() => alignY('top')}>Top</button>
+      <button className="tbtn" onClick={() => alignY('middle')}>Middle</button>
+      <button className="tbtn" onClick={() => alignY('bottom')}>Bottom</button>
+    </div>
+  );
+}
+
+// Prompt 23 item 9: one shared "Alignment" section — content alignment
+// (how content sits inside its own box) followed by page alignment (where
+// the box itself sits on the page), in that order, under a single title —
+// applies uniformly to content items, shape items, and (via its own
+// smaller call below) a selected sub-part's whole container.
+function AlignmentSection({ hAlign, vAlign, pageAlignItem }) {
+  if (!hAlign && !vAlign && !pageAlignItem) return null;
+  return (
     <>
-      <div className="panel__section-title">Align</div>
-      <div className="align-grid">
-        <button className="tbtn" onClick={() => alignX('left')}>Left</button>
-        <button className="tbtn" onClick={() => alignX('center')}>Center</button>
-        <button className="tbtn" onClick={() => alignX('right')}>Right</button>
-        <button className="tbtn" onClick={() => alignY('top')}>Top</button>
-        <button className="tbtn" onClick={() => alignY('middle')}>Middle</button>
-        <button className="tbtn" onClick={() => alignY('bottom')}>Bottom</button>
+      <div className="panel__section-title">Alignment</div>
+      {hAlign}
+      {vAlign}
+      {pageAlignItem && <PageAlignButtons item={pageAlignItem} />}
+    </>
+  );
+}
+
+// Which label to show for a sub-part in its own panel, and whether it's
+// individually deletable — the only deletable parts are optional block
+// lines (Prompt 5); label/value (Due Date, Issue Date) and qr's title/body
+// are fixed content, styleable but never removable.
+function partMeta(def, part) {
+  if (part === 'title') return { label: 'Title', deletable: false };
+  if (def.variant === 'block') {
+    const line = def.render().lines.find((l) => l.key === part);
+    return { label: line?.label || 'Body', deletable: !!line && !line.required, required: line?.required };
+  }
+  if (def.variant === 'label-value') {
+    return { label: part === 'label' ? 'Label' : 'Value', deletable: false };
+  }
+  return { label: 'Body', deletable: false }; // qr's image half
+}
+
+// Part-level font-size fallback: label-value's two spans share its
+// container size (11 for a `strong` item like Total due, 10 otherwise),
+// title uses the block-title 8px default, everything else is a block body
+// line at 9px — mirrors the fallbacks CanvasItem.jsx's ContentBody passes
+// to partInlineStyle() for the same parts.
+function partDefaultFontSize(def, part) {
+  if (def.variant === 'label-value') return def.strong ? 11 : 10;
+  if (part === 'title') return 8;
+  return 9;
+}
+
+function PartProperties({ item, part, pageAlignItem }) {
+  const { updateItemPart, deleteBlockLine } = useEditor();
+  const def = ELEMENT_TYPES[item.type];
+  const meta = partMeta(def, part);
+  const partStyle = item[part] || {};
+  const defaultColor = part === 'title' ? '#a2896b' : '#55524a';
+
+  return (
+    <>
+      <div className="panel__section-title">
+        {def.label} — {meta.label}
       </div>
+
+      <div className="panel__section-title">Fill &amp; border</div>
+      <div className="prop-row">
+        <label>Background</label>
+        <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Border color</label>
+        <input type="color" value={partStyle.borderColor || '#262420'} onChange={(e) => updateItemPart(item.id, part, { borderColor: e.target.value })} />
+      </div>
+      <SliderRow label="Border width" min={0} max={6} value={partStyle.borderWidth || 0} onChange={(v) => updateItemPart(item.id, part, { borderWidth: v })} />
+
+      <div className="panel__section-title">Typography</div>
+      <div className="prop-row">
+        <label>Text color</label>
+        <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
+      </div>
+      <FontControls
+        style={partStyle}
+        onChange={(patch) => updateItemPart(item.id, part, patch)}
+        defaultSize={partDefaultFontSize(def, part)}
+      />
+
+      <AlignmentSection
+        hAlign={
+          def.variant === 'block' && (
+            <ContentAlignControl
+              label="Align"
+              options={H_ALIGN_OPTIONS}
+              defaultValue="left"
+              value={partStyle.contentAlign}
+              onChange={(v) => updateItemPart(item.id, part, { contentAlign: v })}
+            />
+          )
+        }
+        pageAlignItem={pageAlignItem}
+      />
+
+      {meta.deletable && (
+        <button className="tbtn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} onClick={() => deleteBlockLine(item.id, part)}>
+          Delete this line
+        </button>
+      )}
+      {!meta.deletable && def.variant === 'block' && part !== 'title' && (
+        <p className="empty-hint">This line is required and can't be removed.</p>
+      )}
+    </>
+  );
+}
+
+// Whole-item font-size fallback per variant — mirrors the fallbacks
+// CanvasItem.jsx's ContentBody passes to fontStyle() for that same variant.
+// (`label-value` never reaches this: it's a SUB_PART_VARIANT, so
+// hideTextControls suppresses the whole-item font row entirely — table's
+// own dedicated panel below has its own header-size field, but body font
+// size is this same generic control now — see Prompt 23 item 10.)
+function variantDefaultFontSize(variant) {
+  if (variant === 'table') return 8.5;
+  if (variant === 'footer') return 7;
+  return 10; // text, note
+}
+
+function ContentProperties({ items, pageAlignItem }) {
+  const { updateItems } = useEditor();
+  const ids = items.map((i) => i.id);
+  const first = items[0];
+  // block/qr/label-value's own text lives in their sub-parts (styled via
+  // PartProperties instead) — the whole-item selection here only covers
+  // their outer card (background/border), not a font a whole-item control
+  // would even apply to. Every other variant is a single flat text run,
+  // where the whole-item controls ARE the text controls — except
+  // 'divider', which has no text at all (its color is the Background
+  // control below, matching how the shape-line's color works), and
+  // 'image', whose Logo/Signature types now render a real asset rather
+  // than a currentColor-recolorable mark — text color and font no longer
+  // apply to either. Background/border stay available regardless.
+  const firstVariant = ELEMENT_TYPES[first.type].variant;
+  const hideTextControls =
+    items.length === 1 && (SUB_PART_VARIANTS.has(firstVariant) || firstVariant === 'divider' || firstVariant === 'image');
+  const showHAlign = ALIGNABLE_VARIANTS.has(firstVariant) && !ELEMENT_TYPES[first.type].spread;
+  const showVAlign = ALIGNABLE_VARIANTS.has(firstVariant);
+
+  return (
+    <>
+      <div className="panel__section-title">
+        {items.length > 1 ? `${items.length} elements selected` : ELEMENT_TYPES[first.type].label}
+      </div>
+
+      {/* Fill / Border / Radius — universal (Prompt 15): every content
+          item renders a frame that can take a background/border/radius,
+          Logo/Signature/QR included, since their border/background live
+          on this same outer frame (see CanvasItem.jsx's frameStyle). */}
+      <div className="panel__section-title">Fill &amp; border</div>
+      <div className="prop-row">
+        <label>Background</label>
+        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
+      </div>
+      <div className="prop-row">
+        <label>Border color</label>
+        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
+      </div>
+      <SliderRow label="Border width" min={0} max={6} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
+      <SliderRow label="Corner radius" min={0} max={24} value={first.cornerRadius ?? 0} onChange={(v) => updateItems(ids, () => ({ cornerRadius: v }))} />
+
+      {!hideTextControls && (
+        <>
+          <div className="panel__section-title">Typography</div>
+          <div className="prop-row">
+            <label>Text color</label>
+            <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
+          </div>
+          <FontControls
+            style={first}
+            onChange={(patch) => updateItems(ids, () => patch)}
+            defaultSize={variantDefaultFontSize(firstVariant)}
+          />
+        </>
+      )}
+
+      <AlignmentSection
+        hAlign={
+          showHAlign && (
+            <ContentAlignControl
+              label="Align"
+              options={H_ALIGN_OPTIONS}
+              defaultValue="left"
+              value={first.contentAlign}
+              onChange={(v) => updateItems(ids, () => ({ contentAlign: v }))}
+            />
+          )
+        }
+        vAlign={
+          showVAlign && (
+            <ContentAlignControl
+              label="Vertical"
+              options={V_ALIGN_OPTIONS}
+              defaultValue="top"
+              value={first.contentAlignY}
+              onChange={(v) => updateItems(ids, () => ({ contentAlignY: v }))}
+            />
+          )
+        }
+        pageAlignItem={pageAlignItem}
+      />
     </>
   );
 }
@@ -356,6 +394,12 @@ function AlignmentControls({ item }) {
 // header row styling, row borders/shading, corner radius. Column widths
 // are dragged directly on the canvas (the divider handles in
 // CanvasItem.jsx); this just points that out, there's no width input here.
+//
+// Prompt 23 item 10: body font size used to have its OWN input here,
+// editing the exact same `item.fontSize` field the generic Typography
+// section's "Size" control (above, in ContentProperties) already edits —
+// a literal duplicate. Removed here; the generic control is now the one
+// place that sets it.
 function TableProperties({ item }) {
   const { updateItem } = useEditor();
   const patch = (p) => updateItem(item.id, p);
@@ -385,17 +429,10 @@ function TableProperties({ item }) {
 
       <div className="panel__section-title">Table — Body rows</div>
       <div className="prop-row">
-        <label>Body font size</label>
-        <input type="number" min="6" max="72" value={item.fontSize || 8.5} onChange={(e) => patch({ fontSize: Number(e.target.value) })} />
-      </div>
-      <div className="prop-row">
         <label>Row border color</label>
         <input type="color" value={item.rowBorderColor || '#e5e1d6'} onChange={(e) => patch({ rowBorderColor: e.target.value })} />
       </div>
-      <div className="prop-row">
-        <label>Row border width</label>
-        <input type="range" min="0" max="3" step="0.5" value={item.rowBorderWidth ?? 0.5} onChange={(e) => patch({ rowBorderWidth: Number(e.target.value) })} />
-      </div>
+      <SliderRow label="Row border width" min={0} max={3} step={0.5} value={item.rowBorderWidth ?? 0.5} onChange={(v) => patch({ rowBorderWidth: v })} />
       <div className="prop-row">
         <label>Alternating shading</label>
         <input type="checkbox" checked={!!item.altRowShading} onChange={(e) => patch({ altRowShading: e.target.checked })} />
@@ -408,10 +445,7 @@ function TableProperties({ item }) {
       )}
 
       <div className="panel__section-title">Table — Columns</div>
-      <div className="prop-row">
-        <label>Cell padding</label>
-        <input type="range" min="0" max="16" value={item.cellPadding ?? 4} onChange={(e) => patch({ cellPadding: Number(e.target.value) })} />
-      </div>
+      <SliderRow label="Cell padding" min={0} max={16} value={item.cellPadding ?? 4} onChange={(v) => patch({ cellPadding: v })} />
       {ELEMENT_TYPES[item.type].render().columns.map((col, j) => {
         const align = item.columnAlign?.[j] || (j === 0 ? 'left' : 'right');
         const setAlign = (v) => {
@@ -433,9 +467,6 @@ function TableProperties({ item }) {
         );
       })}
 
-      {/* Corner radius lives in the generic ContentProperties section
-          above now (Prompt 15's universal control) — same item.cornerRadius
-          field, no need for a second slider here. */}
       <p className="empty-hint">Drag the thin dividers on the table itself to resize individual columns.</p>
     </>
   );
@@ -474,7 +505,7 @@ function PageProperties() {
   );
 }
 
-function ShapeProperties({ items }) {
+function ShapeProperties({ items, pageAlignItem }) {
   const { updateItems } = useEditor();
   const ids = items.map((i) => i.id);
   const first = items[0];
@@ -482,24 +513,8 @@ function ShapeProperties({ items }) {
   return (
     <>
       <div className="panel__section-title">{items.length > 1 ? `${items.length} shapes selected` : 'Shape'}</div>
-      <div className="prop-row">
-        <label>Fill</label>
-        <input type="color" value={first.fill} onChange={(e) => updateItems(ids, () => ({ fill: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={first.borderColor === 'transparent' ? '#000000' : first.borderColor} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border width</label>
-        <input type="range" min="0" max="8" value={first.borderWidth} onChange={(e) => updateItems(ids, () => ({ borderWidth: Number(e.target.value) }))} />
-      </div>
-      {first.type === 'roundedRect' && (
-        <div className="prop-row">
-          <label>Corner radius</label>
-          <input type="range" min="0" max="60" value={first.radius} onChange={(e) => updateItems(ids, () => ({ radius: Number(e.target.value) }))} />
-        </div>
-      )}
+
+      <div className="panel__section-title">Position &amp; size</div>
       <div className="prop-row">
         <label>Width</label>
         <input type="number" value={Math.round(first.width)} onChange={(e) => updateItems(ids, () => ({ width: Number(e.target.value) }))} />
@@ -508,10 +523,23 @@ function ShapeProperties({ items }) {
         <label>Height</label>
         <input type="number" value={Math.round(first.height)} onChange={(e) => updateItems(ids, () => ({ height: Number(e.target.value) }))} />
       </div>
+      <SliderRow label="Rotation" min={-180} max={180} value={first.rotation} onChange={(v) => updateItems(ids, () => ({ rotation: v }))} />
+
+      <div className="panel__section-title">Fill &amp; border</div>
       <div className="prop-row">
-        <label>Rotation</label>
-        <input type="range" min="-180" max="180" value={first.rotation} onChange={(e) => updateItems(ids, () => ({ rotation: Number(e.target.value) }))} />
+        <label>Fill</label>
+        <input type="color" value={first.fill} onChange={(e) => updateItems(ids, () => ({ fill: e.target.value }))} />
       </div>
+      <div className="prop-row">
+        <label>Border color</label>
+        <input type="color" value={first.borderColor === 'transparent' ? '#000000' : first.borderColor} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
+      </div>
+      <SliderRow label="Border width" min={0} max={8} value={first.borderWidth} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
+      {first.type === 'roundedRect' && (
+        <SliderRow label="Corner radius" min={0} max={60} value={first.radius} onChange={(v) => updateItems(ids, () => ({ radius: v }))} />
+      )}
+
+      <AlignmentSection pageAlignItem={pageAlignItem} />
     </>
   );
 }
@@ -522,17 +550,17 @@ export default function PropertiesPanel() {
   const partItem = selection.part ? template.items.find((i) => i.id === selection.part.id) : null;
   const kinds = new Set(selectedItems.map((i) => i.kind));
   const singleItem = selectedItems.length === 1 ? selectedItems[0] : null;
+  const pageAlignItem = singleItem && !singleItem.locked ? singleItem : null;
 
   return (
     <div className="panel panel--right">
-      {singleItem && !singleItem.locked && <AlignmentControls item={singleItem} />}
       {partItem && SUB_PART_VARIANTS.has(ELEMENT_TYPES[partItem.type].variant) ? (
-        <PartProperties item={partItem} part={selection.part.key} />
+        <PartProperties item={partItem} part={selection.part.key} pageAlignItem={pageAlignItem} />
       ) : (
         <>
           {selectedItems.length > 0 && kinds.size === 1 && kinds.has('content') && (
             <>
-              <ContentProperties items={selectedItems} />
+              <ContentProperties items={selectedItems} pageAlignItem={pageAlignItem} />
               {selectedItems.length === 1 && selectedItems[0].type === 'itemsTable' && (
                 <TableProperties item={selectedItems[0]} />
               )}
@@ -542,7 +570,7 @@ export default function PropertiesPanel() {
             </>
           )}
           {selectedItems.length > 0 && kinds.size === 1 && kinds.has('shape') && (
-            <ShapeProperties items={selectedItems} />
+            <ShapeProperties items={selectedItems} pageAlignItem={pageAlignItem} />
           )}
           {selectedItems.length > 0 && kinds.size > 1 && (
             <div className="panel__section-title">{selectedItems.length} items selected (mixed)</div>

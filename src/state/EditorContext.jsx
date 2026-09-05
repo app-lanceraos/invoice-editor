@@ -74,6 +74,15 @@ export function EditorProvider({ children }) {
   // EditorCanvas's own wheel-zoom handler and by Toolbar's "Fit to
   // screen" — neither needs to re-render when the OTHER touches it).
   const canvasViewportRef = useRef(null);
+  // Prompt 23 item 1: whether each sidebar is collapsed — a VIEW
+  // preference, same category as `zoom` above, not `template` data:
+  // collapsing a panel is never an undo-able action and never touches a
+  // single stored item field, so it's a plain useState independent of
+  // history/commit, same reasoning as zoom's own comment.
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const toggleLeftPanel = useCallback(() => setLeftPanelCollapsed((v) => !v), []);
+  const toggleRightPanel = useCallback(() => setRightPanelCollapsed((v) => !v), []);
 
   const template = history.present;
 
@@ -327,6 +336,10 @@ export function EditorProvider({ children }) {
     zoom,
     setZoom,
     canvasViewportRef,
+    leftPanelCollapsed,
+    toggleLeftPanel,
+    rightPanelCollapsed,
+    toggleRightPanel,
     toggleContentItem,
     updateItem,
     updateItems,

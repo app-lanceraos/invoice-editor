@@ -14,11 +14,11 @@ import {
   rotateVector,
 } from '../../utils/geometry';
 
-// How far outside the group box each handle floats — same convention as
-// CanvasItem's own HANDLE_GAP, just without that one's adaptive-neighbor
-// shrinking (a synthetic group box has no single "neighbor" of its own to
-// stay clear of the way an individual item's handle does).
-const HANDLE_GAP = 8;
+// Prompt 23 item 5: square handles centered directly on the group box's own
+// border, same convention as CanvasItem's individual-item handles — no
+// adaptive-neighbor shrinking here (a synthetic group box has no single
+// "neighbor" of its own to stay clear of the way an individual item's
+// handle does).
 
 // Prompt 18 item 2: a whole-item-level property is a MINIMUM for text
 // (Prompt 14), but a multi-select resize is a genuine SCALE transform —
@@ -271,8 +271,8 @@ export default function GroupSelectionOverlay() {
           key={h.key}
           className="item__resize-handle"
           style={{
-            left: `calc(${h.fx * 100}% + ${h.fx === 0.5 ? 0 : h.fx === 1 ? HANDLE_GAP : -HANDLE_GAP}px)`,
-            top: `calc(${h.fy * 100}% + ${h.fy === 0.5 ? 0 : h.fy === 1 ? HANDLE_GAP : -HANDLE_GAP}px)`,
+            left: `${h.fx * 100}%`,
+            top: `${h.fy * 100}%`,
             cursor: h.cursor,
             pointerEvents: 'auto',
           }}

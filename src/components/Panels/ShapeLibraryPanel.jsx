@@ -20,10 +20,6 @@ export default function ShapeLibraryPanel() {
           {def.label}
         </button>
       ))}
-      <p className="empty-hint" style={{ marginTop: 10 }}>
-        Drag a shape flush against a full page edge to turn it into a rail —
-        it'll push content inward automatically.
-      </p>
     </>
   );
 }
