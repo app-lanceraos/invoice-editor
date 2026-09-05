@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { detectRail } from '../../data/shapeCatalog';
+import { beginDragSelectGuard } from '../../utils/dragGuard';
 import CanvasItem from './CanvasItem';
 
 // Single free-positioning canvas for every item — shape or content. Shapes
@@ -17,6 +18,7 @@ export default function CanvasLayer({ readOnly = false }) {
 
   const startMarquee = (e) => {
     if (e.target !== e.currentTarget) return; // only start on empty canvas, not on an item
+    const restoreSelection = beginDragSelectGuard();
     const rect = e.currentTarget.getBoundingClientRect();
     const start = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     setSelection({ ids: [], part: null });
@@ -50,6 +52,7 @@ export default function CanvasLayer({ readOnly = false }) {
         if (hits.length) setSelection({ ids: hits.map((i) => i.id), part: null });
       }
       setMarquee(null);
+      restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);

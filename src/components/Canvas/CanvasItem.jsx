@@ -14,10 +14,12 @@ import {
   getFooterTop,
   computeGuides,
   rotateVector,
+  rotatedBoundingBox,
   resolveMoveCollision,
   resolveResizeCollision,
   edgeClearance,
 } from '../../utils/geometry';
+import { beginDragSelectGuard } from '../../utils/dragGuard';
 
 // Table columns default to equal shares of the table's width; stored as
 // percentages (summing to 100) rather than px, so they stay meaningful
@@ -604,15 +606,35 @@ export default function CanvasItem({ item, readOnly = false }) {
     }
     draggedRef.current = false;
 
+    // `selection` (context state) won't reflect a shift-toggle made in
+    // this very handler until the next render, so the gesture that's
+    // about to start needs its own, immediately-correct view of who's
+    // selected — computed locally rather than read back from `selection`.
+    let effectiveIds = selection.ids;
     if (e.shiftKey) {
-      const ids = selection.ids.includes(item.id)
+      effectiveIds = selection.ids.includes(item.id)
         ? selection.ids.filter((id) => id !== item.id)
         : [...selection.ids, item.id];
-      setSelection({ ids, part: null });
+      setSelection({ ids: effectiveIds, part: null });
     } else if (!selection.ids.includes(item.id)) {
-      setSelection({ ids: [item.id], part: null });
+      effectiveIds = [item.id];
+      setSelection({ ids: effectiveIds, part: null });
     }
 
+    // Prompt 17 item 3: dragging any one member of a multi-item selection
+    // moves the whole group together — but if this shift-click just
+    // toggled `item` itself OFF the selection, dragging it should still
+    // just move `item` alone (dragging something you just deselected
+    // shouldn't silently drag a completely different group instead).
+    // Locked members of the selection stay selected but never move.
+    const groupIds = effectiveIds.includes(item.id) ? effectiveIds : [item.id];
+    const groupMembers = template.items.filter((i) => groupIds.includes(i.id) && !i.locked);
+    if (groupMembers.length > 1) {
+      beginGroupMove(e, groupMembers);
+      return;
+    }
+
+    const restoreSelection = beginDragSelectGuard();
     const start = { x: e.clientX, y: e.clientY, origX: item.x, origY: item.y };
     const others = template.items.filter((i) => i.id !== item.id);
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
@@ -687,6 +709,140 @@ export default function CanvasItem({ item, readOnly = false }) {
       setPushPreview({});
       setEdgeHighlight(null);
       setGuides(null);
+      restoreSelection();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Prompt 17 item 3: the multi-item-selection counterpart to beginMove
+  // above — every member of `groupMembers` (already lock-filtered, always
+  // includes `item` itself) translates by the exact same delta, so the
+  // group slides as one rigid piece rather than squeezing or leaving
+  // members behind. Collision against OUTSIDE items is resolved using the
+  // union of the group's own CONTENT members' (shapes stay exempt, same
+  // as everywhere else) rotated bounding boxes as a single stand-in
+  // "mover" box — since every member moves identically, only that
+  // envelope's outer silhouette can ever be what an outside neighbor
+  // contacts, so treating it as one solid box is exact, not an
+  // approximation, and lets this reuse resolveMoveCollision unchanged.
+  // Members never push or collide against EACH OTHER during this gesture
+  // (Prompt 17's explicit call) — internal gaps inside the envelope are
+  // simply not tested against anything.
+  const beginGroupMove = (e, groupMembers) => {
+    const restoreSelection = beginDragSelectGuard();
+    const start = { x: e.clientX, y: e.clientY };
+    const footerTop = getFooterTop(template.items, template.page);
+    const starts = groupMembers.map((m) => ({ id: m.id, item: m, origX: m.x, origY: m.y }));
+    const groupIdSet = new Set(groupMembers.map((m) => m.id));
+
+    const contentMembers = groupMembers.filter((m) => m.kind === 'content');
+    const outsideContent = template.items
+      .filter((i) => i.kind === 'content' && !groupIdSet.has(i.id))
+      .map(withEffectiveSize);
+    const bounds = contentMembers.length ? getItemBounds(contentMembers[0], template.page, footerTop) : null;
+
+    let startEnvelope = null;
+    if (contentMembers.length) {
+      const boxes = contentMembers.map(withEffectiveSize).map(rotatedBoundingBox);
+      startEnvelope = {
+        minX: Math.min(...boxes.map((b) => b.minX)),
+        maxX: Math.max(...boxes.map((b) => b.maxX)),
+        minY: Math.min(...boxes.map((b) => b.minY)),
+        maxY: Math.max(...boxes.map((b) => b.maxY)),
+      };
+    }
+
+    // The single shared delta every member must obey: each member's own
+    // kind-aware boundary (getItemBounds — true page edge for a shape,
+    // PAGE_PADDING inset for content) caps how far it can personally
+    // travel on this axis; intersecting every member's own allowed range
+    // gives the range the WHOLE group can move while keeping every
+    // member on-page, without any one member clamping more than another
+    // (which would squeeze the group instead of sliding it as one piece).
+    const allowedDelta = (axis, desired) => {
+      let lo = -Infinity;
+      let hi = Infinity;
+      starts.forEach(({ item: m, origX, origY }) => {
+        const b = getItemBounds(m, template.page, footerTop);
+        const minB = axis === 'x' ? b.minX : b.minY;
+        const maxB = axis === 'x' ? b.maxX : b.maxY;
+        const pos = axis === 'x' ? origX : origY;
+        const size = axis === 'x' ? m.width : m.height;
+        lo = Math.max(lo, minB - pos);
+        hi = Math.min(hi, maxB - size - pos);
+      });
+      return Math.max(lo, Math.min(desired, hi));
+    };
+
+    let lastShift = { dx: 0, dy: 0 };
+    let finalShift = lastShift;
+    let finalPushed = new Map();
+    const primaryStart = starts.find((s) => s.id === item.id) || { origX: item.x, origY: item.y };
+
+    const onMove = (ev) => {
+      draggedRef.current = true;
+      let dx = allowedDelta('x', ev.clientX - start.x);
+      let dy = allowedDelta('y', ev.clientY - start.y);
+      let pushed = new Map();
+
+      if (startEnvelope) {
+        const size = { width: startEnvelope.maxX - startEnvelope.minX, height: startEnvelope.maxY - startEnvelope.minY };
+        const resolved = resolveMoveCollision(
+          { x: startEnvelope.minX + lastShift.dx, y: startEnvelope.minY + lastShift.dy },
+          { x: startEnvelope.minX + dx, y: startEnvelope.minY + dy },
+          size,
+          0,
+          outsideContent,
+          bounds
+        );
+        dx = resolved.x - startEnvelope.minX;
+        dy = resolved.y - startEnvelope.minY;
+        pushed = resolved.pushed;
+      }
+
+      lastShift = { dx, dy };
+      finalShift = lastShift;
+      finalPushed = pushed;
+
+      const preview = {};
+      starts.forEach(({ id, origX, origY }) => {
+        if (id !== item.id) preview[id] = { x: origX + dx, y: origY + dy };
+      });
+      pushed.forEach((pos, id) => {
+        preview[id] = pos;
+      });
+
+      const edges = { left: false, right: false, top: false, bottom: false };
+      starts.forEach(({ item: m, origX, origY }) => {
+        const b = getItemBounds(m, template.page, footerTop);
+        const nx = origX + dx;
+        const ny = origY + dy;
+        if (nx <= b.minX + 0.5) edges.left = true;
+        if (nx + m.width >= b.maxX - 0.5) edges.right = true;
+        if (ny <= b.minY + 0.5) edges.top = true;
+        if (ny + m.height >= b.maxY - 0.5) edges.bottom = true;
+      });
+
+      setEdgeHighlight(edges);
+      setLive({ x: primaryStart.origX + dx, y: primaryStart.origY + dy });
+      setPushPreview(preview);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const { dx, dy } = finalShift;
+      const patches = new Map();
+      starts.forEach(({ id, origX, origY }) => patches.set(id, { x: origX + dx, y: origY + dy }));
+      finalPushed.forEach((pos, id) => patches.set(id, pos));
+      if (dx || dy || finalPushed.size > 0) {
+        updateItems([...patches.keys()], (i) => patches.get(i.id));
+      }
+      setLive(null);
+      setPushPreview({});
+      setEdgeHighlight(null);
+      setGuides(null);
+      restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -701,6 +857,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     // one both performs the resize AND switches selection to the whole
     // item, so there's no intermediate step required first.
     if (selection.part) setSelection({ ids: [item.id], part: null });
+    const restoreSelection = beginDragSelectGuard();
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
@@ -771,6 +928,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       setPushPreview({});
       setEdgeHighlight(null);
       setGuides(null);
+      restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -780,6 +938,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     e.stopPropagation();
     e.preventDefault();
     if (selection.part) setSelection({ ids: [item.id], part: null });
+    const restoreSelection = beginDragSelectGuard();
     const rect = e.currentTarget.parentElement.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
@@ -799,6 +958,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       if (finalRotation) updateItem(item.id, finalRotation);
       setLive(null);
       setRotationSnapped(false);
+      restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -837,6 +997,7 @@ export default function CanvasItem({ item, readOnly = false }) {
   const beginColumnResize = (e, colIndex) => {
     e.stopPropagation();
     e.preventDefault();
+    const restoreSelection = beginDragSelectGuard();
     const numCols = def.render().columns.length;
     const startWidths = item.columnWidths || defaultColumnWidths(numCols);
     const startMouse = { x: e.clientX, y: e.clientY };
@@ -862,6 +1023,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       window.removeEventListener('mouseup', onUp);
       if (finalWidths) updateItem(item.id, { columnWidths: finalWidths });
       setLive(null);
+      restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);

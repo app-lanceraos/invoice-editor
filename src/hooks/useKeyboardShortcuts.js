@@ -20,6 +20,18 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); runSave(); return; }
 
+      // Prompt 17 item 2: select every canvas item — content AND shapes,
+      // the unified template.items model from Prompt 3 — and, critically,
+      // preventDefault so the browser's own "select all text on the page"
+      // never fires alongside it (that native behavior firing unopposed
+      // was the actual bug; there was no prior select-all of any kind to
+      // widen — Prompt 2 predates the unified item model entirely).
+      if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelection({ ids: template.items.map((i) => i.id), part: null });
+        return;
+      }
+
       if (mod && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         if (selection.ids.length >= 2) groupItems(selection.ids);
