@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
-import { getItemBounds, getFooterTop } from '../../utils/geometry';
+import { getItemBounds, getFooterTop, resolveMoveCollision } from '../../utils/geometry';
 import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fonts';
 
 // Variants whose text is split into independently-styleable parts (see
@@ -284,19 +284,56 @@ function ContentProperties({ items }) {
 // item already can't cross (getItemBounds: true edge for a shape,
 // PAGE_PADDING inset for content), so "Align Left" can't itself produce a
 // position the boundary clamp would immediately have to correct.
+//
+// Prompt 16 item 4: setting x/y directly here used to bypass collision
+// entirely — aligning B onto a spot A already occupies just overlapped
+// them. Content items now route through the exact same cascading-push
+// resolution a drag uses (resolveMoveCollision): aligning pushes whatever
+// is in the way (and transitively whatever THAT touches) rather than
+// landing on top of it, capped only at a genuinely immovable neighbor or
+// the page/footer boundary. Shapes stay exempt, same as everywhere else
+// collision applies — there's nothing to push them into or out of.
 function AlignmentControls({ item }) {
-  const { template, updateItem } = useEditor();
+  const { template, updateItem, updateItems, effectiveSizes } = useEditor();
   const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
+
+  const moveTo = (x, y) => {
+    if (item.kind !== 'content') {
+      updateItem(item.id, { x, y });
+      return;
+    }
+    const withEffectiveSize = (o) => {
+      const eff = effectiveSizes[o.id];
+      return eff ? { ...o, width: eff.width, height: eff.height } : o;
+    };
+    const neighbors = template.items
+      .filter((i) => i.id !== item.id && i.kind === 'content')
+      .map(withEffectiveSize);
+    const resolved = resolveMoveCollision(
+      { x: item.x, y: item.y },
+      { x, y },
+      { width: item.width, height: item.height },
+      item.rotation || 0,
+      neighbors,
+      bounds
+    );
+    if (resolved.pushed.size > 0) {
+      const ids = [item.id, ...resolved.pushed.keys()];
+      updateItems(ids, (i) => (i.id === item.id ? { x: resolved.x, y: resolved.y } : resolved.pushed.get(i.id)));
+    } else {
+      updateItem(item.id, { x: resolved.x, y: resolved.y });
+    }
+  };
 
   const alignX = (mode) => {
     const x =
       mode === 'left' ? bounds.minX : mode === 'right' ? bounds.maxX - item.width : (bounds.minX + bounds.maxX - item.width) / 2;
-    updateItem(item.id, { x });
+    moveTo(x, item.y);
   };
   const alignY = (mode) => {
     const y =
       mode === 'top' ? bounds.minY : mode === 'bottom' ? bounds.maxY - item.height : (bounds.minY + bounds.maxY - item.height) / 2;
-    updateItem(item.id, { y });
+    moveTo(item.x, y);
   };
 
   return (

@@ -14,7 +14,6 @@ import {
   getFooterTop,
   computeGuides,
   rotateVector,
-  collisionBoxes,
   resolveMoveCollision,
   resolveResizeCollision,
   edgeClearance,
@@ -278,11 +277,31 @@ function ContentBody({ item, isPartSelected, onSelectPart, isPartHovered, onPart
       // these two types in the properties panel (PropertiesPanel.jsx);
       // `object-fit: contain` keeps each asset's own aspect ratio intact
       // through a non-uniform resize instead of stretching it.
-      if (item.type === 'logo') {
-        return <img src="/favicon.svg" alt="Logo" className="item__image-placeholder" style={{ objectFit: 'contain' }} />;
-      }
-      if (item.type === 'signatureImage') {
-        return <img src="/signature.png" alt="Signature" className="item__image-placeholder" style={{ objectFit: 'contain' }} />;
+      // Prompt 16 item 5: the <img> itself never receives pointer events —
+      // `pointer-events: none` AND `draggable={false}` together, belt and
+      // suspenders — so mousedown/drag on this item can never be hijacked
+      // by the browser's native "drag this image out" gesture, nor ever
+      // hit-test against just the asset's own opaque pixels. A plain
+      // transparent `.item__image-interaction` layer on top (same size,
+      // absolutely positioned over the wrapper) is what actually receives
+      // every click/drag, at the FULL bounding box, and bubbles it up to
+      // this frame's own onMouseDown (beginMove) exactly like clicking
+      // empty space anywhere else in the item already does.
+      if (item.type === 'logo' || item.type === 'signatureImage') {
+        const src = item.type === 'logo' ? '/favicon.svg' : '/signature.png';
+        const alt = item.type === 'logo' ? 'Logo' : 'Signature';
+        return (
+          <div className="item__image-wrap">
+            <img
+              src={src}
+              alt={alt}
+              draggable={false}
+              className="item__image-placeholder"
+              style={{ objectFit: 'contain', pointerEvents: 'none' }}
+            />
+            <div className="item__image-interaction" />
+          </div>
+        );
       }
       // Any other 'image'-variant type (none currently defined) falls back
       // to the plain text-label placeholder.
@@ -486,10 +505,13 @@ export default function CanvasItem({ item, readOnly = false }) {
     selection,
     setSelection,
     updateItem,
+    updateItems,
     setEdgeHighlight,
     setGuides,
     effectiveSizes,
     setEffectiveSize,
+    pushPreview,
+    setPushPreview,
     setContextMenu,
   } = useEditor();
   const def = item.kind === 'content' ? ELEMENT_TYPES[item.type] : null;
@@ -518,7 +540,11 @@ export default function CanvasItem({ item, readOnly = false }) {
   const onPartHoverEnter = (e, part) => setHoveredPart(part);
   const onPartHoverLeave = (e, part) => setHoveredPart((prev) => (prev === part ? null : prev));
 
-  const current = { ...item, ...(live || {}) };
+  // A cascade-pushed preview (Prompt 16) only ever applies to an item that
+  // ISN'T itself the one being actively dragged/resized right now — `live`
+  // always wins when both would otherwise apply.
+  const pushedHere = !live && pushPreview[item.id];
+  const current = { ...item, ...(live || {}), ...(pushedHere || {}) };
   const rotation = current.rotation || 0;
 
   // Text variants (Prompt 13) don't scale their content to the box at
@@ -529,8 +555,19 @@ export default function CanvasItem({ item, readOnly = false }) {
   // original Prompt 3/11 behavior unchanged: content renders at its fixed
   // natural size and a transform stretches it to fill the box.
   const isTextVariant = !!def && TEXT_VARIANTS.has(def.variant);
-  const scaleX = isTextVariant || !(item.naturalWidth > 0) ? 1 : current.width / item.naturalWidth;
-  const scaleY = isTextVariant || !(item.naturalHeight > 0) ? 1 : current.height / item.naturalHeight;
+  // Prompt 16 item 3: `table` cells are text too (percentage column widths
+  // plus fixed px font sizes, same as every other text-bearing variant),
+  // but got left out of the Prompt 13 migration above — the box was still
+  // stretched via `.item__scale`'s transform, which visibly re-scales
+  // (stretches/squashes) already-fixed-size cell text on every resize.
+  // The outer resize should still reshape the table's own proportions
+  // (row/column layout, Prompt 8's percentage column widths) — it just
+  // needs to do that by sizing `.item__scale` directly to the box (like a
+  // text variant) rather than by transform-scaling a natural-size render.
+  const isTableVariant = def?.variant === 'table';
+  const skipBoxScale = isTextVariant || isTableVariant;
+  const scaleX = skipBoxScale || !(item.naturalWidth > 0) ? 1 : current.width / item.naturalWidth;
+  const scaleY = skipBoxScale || !(item.naturalHeight > 0) ? 1 : current.height / item.naturalHeight;
 
   // Prompt 14: the box a text variant actually renders (and the one other
   // items' collision checks must respect) is current.width/height grown
@@ -544,8 +581,8 @@ export default function CanvasItem({ item, readOnly = false }) {
     if (isTextVariant) setEffectiveSize(item.id, { width: effectiveWidth, height: effectiveHeight });
   }, [isTextVariant, item.id, effectiveWidth, effectiveHeight, setEffectiveSize]);
 
-  const scaleWrapperWidth = isTextVariant ? effectiveWidth : item.naturalWidth;
-  const scaleWrapperHeight = isTextVariant ? effectiveHeight : item.naturalHeight;
+  const scaleWrapperWidth = skipBoxScale ? effectiveWidth : item.naturalWidth;
+  const scaleWrapperHeight = skipBoxScale ? effectiveHeight : item.naturalHeight;
 
   // Collision must react to what's actually on screen, not a stale stored
   // size — a neighbor's own grown (Prompt 14) box, when it has one, is
@@ -586,13 +623,18 @@ export default function CanvasItem({ item, readOnly = false }) {
     const otherXEdges = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
     const otherYEdges = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
     // Collision is content-vs-content only — shapes stay exempt, same rail
-    // exception as the Prompt 5 edge-padding rule. Neighbor boxes are
-    // static for the duration of this gesture (only one item ever moves at
-    // a time), so they're computed once here rather than every frame.
+    // exception as the Prompt 5 edge-padding rule. Neighbors are the raw
+    // items (not pre-expanded boxes) — the cascade needs each one's own
+    // id/locked flag to know who it can push, and by how much — captured
+    // once here since only one item's OWN position ever changes as a
+    // direct result of this gesture (only-just-cascaded neighbors are
+    // recomputed fresh every frame from this same static snapshot, never
+    // accumulated — see resolveMoveCollision).
     const collisionNeighbors =
-      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content').map(withEffectiveSize)) : null;
+      item.kind === 'content' ? others.filter((o) => o.kind === 'content').map(withEffectiveSize) : null;
     let lastValid = { x: item.x, y: item.y };
     let finalPos = null;
+    let finalPushed = new Map();
 
     const onMove = (ev) => {
       draggedRef.current = true;
@@ -608,28 +650,41 @@ export default function CanvasItem({ item, readOnly = false }) {
       const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, bounds);
       let fx = clamped.x;
       let fy = clamped.y;
+      let pushed = new Map();
       if (collisionNeighbors) {
         const resolved = resolveMoveCollision(
           lastValid,
           { x: fx, y: fy },
           { width: item.width, height: item.height },
           item.rotation || 0,
-          collisionNeighbors
+          collisionNeighbors,
+          bounds
         );
         fx = resolved.x;
         fy = resolved.y;
+        pushed = resolved.pushed;
         lastValid = { x: fx, y: fy };
       }
       finalPos = { x: fx, y: fy };
+      finalPushed = pushed;
       setEdgeHighlight(clamped.edges);
       setGuides(computeGuides({ x: fx, y: fy, width: item.width, height: item.height }, others));
       setLive(finalPos);
+      setPushPreview(Object.fromEntries(pushed));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      if (finalPos) updateItem(item.id, finalPos);
+      if (finalPos) {
+        if (finalPushed.size > 0) {
+          const ids = [item.id, ...finalPushed.keys()];
+          updateItems(ids, (i) => (i.id === item.id ? finalPos : finalPushed.get(i.id)));
+        } else {
+          updateItem(item.id, finalPos);
+        }
+      }
       setLive(null);
+      setPushPreview({});
       setEdgeHighlight(null);
       setGuides(null);
     };
@@ -657,8 +712,9 @@ export default function CanvasItem({ item, readOnly = false }) {
     const snapXCandidates = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
     const snapYCandidates = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
     const collisionNeighbors =
-      item.kind === 'content' ? collisionBoxes(others.filter((o) => o.kind === 'content').map(withEffectiveSize)) : null;
+      item.kind === 'content' ? others.filter((o) => o.kind === 'content').map(withEffectiveSize) : null;
     let finalBox = null;
+    let finalPushed = new Map();
 
     const onMove = (ev) => {
       draggedRef.current = true;
@@ -687,19 +743,32 @@ export default function CanvasItem({ item, readOnly = false }) {
 
       const clamped = clampResizeToPage(raw, handle, bounds);
       let box = { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height, rotation: start.rotation };
+      let pushed = new Map();
       if (collisionNeighbors) {
-        box = resolveResizeCollision(start, box, handle, collisionNeighbors);
+        const resolved = resolveResizeCollision(start, box, handle, collisionNeighbors, bounds);
+        box = resolved;
+        pushed = resolved.pushed;
       }
       finalBox = { x: box.x, y: box.y, width: box.width, height: box.height };
+      finalPushed = pushed;
       setEdgeHighlight(clamped.edges);
       setGuides(computeGuides(finalBox, others));
       setLive(finalBox);
+      setPushPreview(Object.fromEntries(pushed));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      if (finalBox) updateItem(item.id, finalBox);
+      if (finalBox) {
+        if (finalPushed.size > 0) {
+          const ids = [item.id, ...finalPushed.keys()];
+          updateItems(ids, (i) => (i.id === item.id ? finalBox : finalPushed.get(i.id)));
+        } else {
+          updateItem(item.id, finalBox);
+        }
+      }
       setLive(null);
+      setPushPreview({});
       setEdgeHighlight(null);
       setGuides(null);
     };
@@ -860,7 +929,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         style={{
           width: scaleWrapperWidth,
           height: scaleWrapperHeight,
-          transform: isTextVariant ? undefined : `scale(${scaleX}, ${scaleY})`,
+          transform: skipBoxScale ? undefined : `scale(${scaleX}, ${scaleY})`,
           // A box smaller than its text's natural footprint should show
           // that (spill past the box, still fully visible) rather than
           // silently clip it away — same safety net as before, just no

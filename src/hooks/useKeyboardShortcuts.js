@@ -7,7 +7,7 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
     template, selection, setSelection,
     undo, redo, runSave,
     deleteItems, deleteBlockLine, duplicateItems, groupItems,
-    addItemFromClipboard,
+    addItemsFromClipboard,
   } = useEditor();
 
   useEffect(() => {
@@ -33,16 +33,16 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       }
 
       if (mod && e.key.toLowerCase() === 'c') {
-        if (selection.ids.length === 1) {
-          const item = template.items.find((i) => i.id === selection.ids[0]);
-          if (item) copyToClipboard({ item });
+        if (selection.ids.length > 0) {
+          const items = template.items.filter((i) => selection.ids.includes(i.id));
+          if (items.length > 0) copyToClipboard({ items });
         }
         return;
       }
 
       if (mod && e.key.toLowerCase() === 'v') {
         const clip = readClipboard();
-        if (clip?.item) addItemFromClipboard(clip.item);
+        if (clip?.items?.length) addItemsFromClipboard(clip.items);
         return;
       }
 
@@ -62,5 +62,5 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemFromClipboard, onPreviewToggle]);
+  }, [template, selection, undo, redo, runSave, deleteItems, deleteBlockLine, duplicateItems, groupItems, setSelection, addItemsFromClipboard, onPreviewToggle]);
 }

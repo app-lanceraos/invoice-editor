@@ -1,8 +1,11 @@
 const KEY = 'invoice-editor:clipboard';
 
-// Clipboard payload shape: { item: {...} } — a full unified canvas item
-// (shape or content, `item.kind` tells you which), copied wholesale.
-// Pasting always adds a new instance, same for either kind.
+// Clipboard payload shape: { items: [...] } — one or more full unified
+// canvas items (shape or content, each one's own `kind` tells you which),
+// copied wholesale. A single-item copy is just a one-element array — there
+// is no separate singular shape — so paste always has a uniform "add this
+// whole group, offset together" path (Prompt 16 item 6) whether it's one
+// item or several.
 
 export function copyToClipboard(payload) {
   try {

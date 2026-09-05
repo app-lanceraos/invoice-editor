@@ -42,6 +42,14 @@ export function EditorProvider({ children }) {
       return { ...prev, [id]: size };
     });
   }, []);
+  // Transient, not history: live preview positions for items being
+  // cascade-pushed by ANOTHER item's in-progress move/resize/align gesture
+  // (Prompt 16) — { [id]: { x, y } }, recomputed fresh every frame from the
+  // gesture's own start snapshot (never accumulated), so a pushed item's
+  // own CanvasItem instance can render the shove in real time even though
+  // it isn't the one being dragged. Cleared back to {} on gesture end,
+  // right when the real positions get committed via updateItems.
+  const [pushPreview, setPushPreview] = useState({});
   // Transient, not history: the right-click context menu (Prompt 15) —
   // { x, y } screen position, or null when closed. Deliberately just a
   // position: which actions it shows is derived fresh from whatever
@@ -182,20 +190,27 @@ export function EditorProvider({ children }) {
     [template, commit]
   );
 
-  // Pasting an item copied earlier (this session or from another template) —
-  // always adds a fresh instance offset slightly so it's visible rather
-  // than stacked exactly on the original; works the same for a shape or a
-  // content item.
-  const addItemFromClipboard = useCallback(
-    (itemData) => {
-      const pasted = {
+  // Pasting whatever was copied earlier (this session or from another
+  // template) — always adds fresh instances offset slightly so they're
+  // visible rather than stacked exactly on the originals; works the same
+  // for a shape or a content item. `itemsData` is always an array (see
+  // clipboard.js) — a single copied item is just a one-element array, and
+  // a multi-item copy pastes the WHOLE group in one commit, each item
+  // getting the exact same offset so their relative positions to each
+  // other are preserved (Prompt 16 item 6) rather than every pasted item
+  // landing stacked on the same spot.
+  const addItemsFromClipboard = useCallback(
+    (itemsData) => {
+      if (!itemsData || itemsData.length === 0) return;
+      const stamp = Date.now();
+      const pasted = itemsData.map((itemData, i) => ({
         ...itemData,
-        id: `${itemData.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: `${itemData.kind}-${stamp}-${i}-${Math.random().toString(36).slice(2, 7)}`,
         x: itemData.x + 16,
         y: itemData.y + 16,
-      };
-      commit({ ...template, items: [...template.items, pasted] });
-      setSelection({ ids: [pasted.id], part: null });
+      }));
+      commit({ ...template, items: [...template.items, ...pasted] });
+      setSelection({ ids: pasted.map((p) => p.id), part: null });
     },
     [template, commit]
   );
@@ -276,6 +291,8 @@ export function EditorProvider({ children }) {
     setGuides,
     effectiveSizes,
     setEffectiveSize,
+    pushPreview,
+    setPushPreview,
     contextMenu,
     setContextMenu,
     toggleContentItem,
@@ -285,7 +302,7 @@ export function EditorProvider({ children }) {
     deleteItems,
     deleteBlockLine,
     duplicateItems,
-    addItemFromClipboard,
+    addItemsFromClipboard,
     addShape,
     groupItems,
     ungroupItems,

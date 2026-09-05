@@ -282,7 +282,14 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: false,
     variant: 'image',
-    defaultBox: { x: 32, y: 1028, width: 110, height: 35 },
+    // width:height matches signature.png's own visible-content aspect
+    // ratio (~1.06:1, nearly square) — the old 110x35 box was much wider
+    // than the asset itself, so `object-fit: contain` (CanvasItem's image
+    // case) letterboxed it down to a small centered strip, leaving a big
+    // empty margin inside the item's own bounding box/selection outline
+    // (Prompt 16 item 2). Matching the aspect ratio here means the image
+    // fills its box edge-to-edge, so the box IS the visible content.
+    defaultBox: { x: 32, y: 1028, width: 37, height: 35 },
     render: () => ({ kind: 'image', placeholder: 'signature' }),
   },
   signatureDivider: {

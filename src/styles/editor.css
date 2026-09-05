@@ -314,6 +314,21 @@ body {
   font-size: 7px; text-align: center;
 }
 
+/* Prompt 16 item 5 — the real <img> (item__image-placeholder) underneath
+   has pointer-events:none, so this transparent layer is what actually
+   captures every click/drag across the item's FULL box, regardless of
+   the asset's own transparent/opaque pixels or the browser's native
+   image-drag gesture. */
+.item__image-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.item__image-interaction {
+  position: absolute;
+  inset: 0;
+}
+
 .item__divider {
   width: 100%;
   height: 100%;

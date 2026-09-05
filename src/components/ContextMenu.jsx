@@ -72,7 +72,7 @@ export default function ContextMenu() {
     actions.push({ key: 'duplicate', label: 'Duplicate', run: () => duplicateItems(selection.ids) });
   }
   if (canCopy) {
-    actions.push({ key: 'copy', label: 'Copy', run: () => copyToClipboard({ item: single }) });
+    actions.push({ key: 'copy', label: 'Copy', run: () => copyToClipboard({ items: [single] }) });
   }
   if (canCopyFormatting) {
     actions.push({

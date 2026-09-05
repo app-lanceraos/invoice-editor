@@ -342,149 +342,281 @@ export function edgeClearance(item, others) {
   return { left, right, top, bottom };
 }
 
-// Hard, per-axis contact resolution for a MOVE, in the standard AABB
-// "slide along the wall" style: X is resolved first (using the last valid
-// Y as the reference row), then Y is resolved using the just-resolved X as
-// the reference column — so a diagonal drag into a neighbor's edge stops
-// the blocked axis at contact while the other axis keeps tracking the
-// mouse. `lastValid` must be a position this same item was already
-// legally at (no overlap) — the gesture's gradually-updated last-good
-// frame, not the drag's original start, so movement stays continuous.
-export function resolveMoveCollision(lastValid, desired, size, rotation, neighborBoxes, margin = COLLISION_MARGIN) {
-  if (!neighborBoxes.length) return { x: desired.x, y: desired.y };
+// Cascading push, one page-aligned axis at a time, in "forward" coordinate
+// space: the advancing edge starts at `startFront` (a position this same
+// edge already validly occupied) and wants to reach `desiredFront`
+// (`desiredFront > startFront` — callers of `cascadeEdge` below negate
+// coordinates for the decreasing-direction case so this never has to know
+// which real axis/sign it's working in). `chain` is every candidate
+// neighbor that could be in the way, as `{ id, near, far, locked }` in
+// that same forward space (near < far), restricted by the caller to
+// whichever ones share the relevant cross-axis band. `boundary` is the
+// genuinely immovable cap in this space (a page/footer edge). `gap` is
+// the real minimum separation to maintain between raw (unexpanded) boxes
+// (2 * COLLISION_MARGIN — 1px claimed by each side).
+//
+// Single left-to-right sweep: everything from `startFront` on is already
+// non-overlapping (the gesture's own invariant), so once a candidate
+// clears (its near edge is `gap` or more ahead of the current occupied
+// front), everything further along the sorted chain clears too — nothing
+// to backtrack. A locked item can't move, so the sweep stops dead there;
+// otherwise the candidate gets pushed to sit exactly `gap` ahead of
+// whatever's already occupying the front, and the front advances to its
+// far edge for the next link. If the fully-pushed chain would overshoot
+// the wall it eventually hits (locked item or boundary), every push
+// (mover included) is reduced by the same overshoot — a uniform backward
+// slide of the whole rigid chain, which — because the ORIGINAL, pre-
+// gesture arrangement was already non-overlapping — can never push
+// anything to less than zero (see the proof in the prompt 16 notes: the
+// pre-gesture gap between any two chain links, summed along the chain,
+// already covers exactly this compression).
+export function cascadePush1D(startFront, desiredFront, chain, boundary, gap) {
+  const shifts = new Map();
+  if (desiredFront <= startFront) return { front: desiredFront, shifts };
+  const sorted = chain.filter((it) => it.near >= startFront).sort((a, b) => a.near - b.near);
+  let cursor = desiredFront;
+  let jammedAt = null;
+  for (const it of sorted) {
+    if (it.near >= cursor + gap) break; // sorted ascending — nothing further is in the way either
+    if (it.locked) {
+      jammedAt = it.near - gap;
+      break;
+    }
+    const size = it.far - it.near;
+    shifts.set(it.id, cursor + gap - it.near);
+    cursor = cursor + gap + size;
+  }
+  const wallLimit = jammedAt !== null ? jammedAt : boundary;
+  if (cursor > wallLimit) {
+    const overshoot = cursor - wallLimit;
+    for (const [id, amt] of shifts) shifts.set(id, amt - overshoot);
+    return { front: desiredFront - overshoot, shifts };
+  }
+  return { front: desiredFront, shifts };
+}
+
+// Wraps cascadePush1D for one real page-aligned axis ('x' or 'y') and
+// direction (`dir` = +1/-1, whichever way the advancing edge is
+// traveling) — converts real coordinates to/from the forward space
+// cascadePush1D expects (a plain identity for dir>0, negated for dir<0,
+// same mirror trick used throughout), and filters `neighbors` (plain
+// {id,x,y,width,height,rotation,locked} content items) down to whichever
+// ones actually share the perpendicular band the moving edge is sweeping
+// through. Returns `{ edge, pushed }`: the edge's actual final real
+// coordinate, and a Map<id, delta> of by how much (signed, this axis
+// only) each neighbor must translate.
+function cascadeEdge(axis, dir, startEdge, desiredEdge, crossMin, crossMax, neighbors, boundaryEdge, gap) {
+  const chain = [];
+  neighbors.forEach((n) => {
+    const nb = rotatedBoundingBox(n);
+    const nCrossMin = axis === 'x' ? nb.minY : nb.minX;
+    const nCrossMax = axis === 'x' ? nb.maxY : nb.maxX;
+    if (crossMin >= nCrossMax || crossMax <= nCrossMin) return; // not in the moving edge's path
+    const rawNear = axis === 'x' ? nb.minX : nb.minY;
+    const rawFar = axis === 'x' ? nb.maxX : nb.maxY;
+    chain.push(
+      dir > 0
+        ? { id: n.id, near: rawNear, far: rawFar, locked: !!n.locked }
+        : { id: n.id, near: -rawFar, far: -rawNear, locked: !!n.locked }
+    );
+  });
+  const startFront = dir > 0 ? startEdge : -startEdge;
+  const desiredFront = dir > 0 ? desiredEdge : -desiredEdge;
+  const boundary = dir > 0 ? boundaryEdge : -boundaryEdge;
+  const { front, shifts } = cascadePush1D(startFront, desiredFront, chain, boundary, gap);
+  const edge = dir > 0 ? front : -front;
+  const pushed = new Map();
+  shifts.forEach((amt, id) => pushed.set(id, amt * dir));
+  return { edge, pushed };
+}
+
+// Per-axis cascading-push resolution for a MOVE: X is resolved first
+// (using the last valid Y as the reference row), then Y is resolved using
+// the just-resolved X as the reference column — same sequential "slide
+// along the wall" order the old hard-stop version used, just letting each
+// axis push a chain of neighbors (see cascadePush1D) instead of freezing
+// at first contact. `lastValid` must be a position this same item was
+// already legally at (no overlap) — the gesture's gradually-updated
+// last-good frame, not the drag's original start, so movement stays
+// continuous. `neighbors` are plain content items (not pre-expanded
+// boxes — the cascade needs each one's own id/locked flag to know who it
+// can push and by how much). `bounds` is this item's own page/footer
+// envelope (see getItemBounds) — the chain's outermost, genuinely
+// immovable limit when nothing locked stops it first.
+export function resolveMoveCollision(lastValid, desired, size, rotation, neighbors, bounds, margin = COLLISION_MARGIN) {
+  if (!neighbors.length) return { x: desired.x, y: desired.y, pushed: new Map() };
   // Local (pre-translation) bbox offsets — rotation/size don't change
   // during a move, so this is the same shape at every (x, y), just shifted.
   const local = rotatedBoundingBox({ x: 0, y: 0, width: size.width, height: size.height, rotation });
+  const gap = margin * 2;
+  const pushedX = new Map();
+  const pushedY = new Map();
 
   let x = desired.x;
-  const rowMinY = lastValid.y + local.minY - margin;
-  const rowMaxY = lastValid.y + local.maxY + margin;
-  if (desired.x > lastValid.x) {
-    let limit = Infinity;
-    neighborBoxes.forEach((n) => {
-      // Only a neighbor actually ahead of us (its blocking edge is not
-      // behind where we already validly are) can cap this move — one that
-      // merely happens to share a row/column but sits behind or off to the
-      // side must never drag the limit back past lastValid.
-      const bound = n.minX - local.maxX - margin;
-      if (rowMinY < n.maxY && rowMaxY > n.minY && bound >= lastValid.x) limit = Math.min(limit, bound);
-    });
-    x = Math.max(lastValid.x, Math.min(desired.x, limit));
-  } else if (desired.x < lastValid.x) {
-    let limit = -Infinity;
-    neighborBoxes.forEach((n) => {
-      const bound = n.maxX - local.minX + margin;
-      if (rowMinY < n.maxY && rowMaxY > n.minY && bound <= lastValid.x) limit = Math.max(limit, bound);
-    });
-    x = Math.min(lastValid.x, Math.max(desired.x, limit));
+  if (desired.x !== lastValid.x) {
+    const dir = desired.x > lastValid.x ? 1 : -1;
+    const rowMinY = lastValid.y + local.minY;
+    const rowMaxY = lastValid.y + local.maxY;
+    const startEdge = dir > 0 ? lastValid.x + local.maxX : lastValid.x + local.minX;
+    const desiredEdge = dir > 0 ? desired.x + local.maxX : desired.x + local.minX;
+    const boundaryEdge = dir > 0 ? bounds.maxX : bounds.minX;
+    const { edge, pushed } = cascadeEdge('x', dir, startEdge, desiredEdge, rowMinY, rowMaxY, neighbors, boundaryEdge, gap);
+    x = dir > 0 ? edge - local.maxX : edge - local.minX;
+    pushed.forEach((v, id) => pushedX.set(id, v));
   }
 
   let y = desired.y;
-  const colMinX = x + local.minX - margin;
-  const colMaxX = x + local.maxX + margin;
-  if (desired.y > lastValid.y) {
-    let limit = Infinity;
-    neighborBoxes.forEach((n) => {
-      const bound = n.minY - local.maxY - margin;
-      if (colMinX < n.maxX && colMaxX > n.minX && bound >= lastValid.y) limit = Math.min(limit, bound);
-    });
-    y = Math.max(lastValid.y, Math.min(desired.y, limit));
-  } else if (desired.y < lastValid.y) {
-    let limit = -Infinity;
-    neighborBoxes.forEach((n) => {
-      const bound = n.maxY - local.minY + margin;
-      if (colMinX < n.maxX && colMaxX > n.minX && bound <= lastValid.y) limit = Math.max(limit, bound);
-    });
-    y = Math.min(lastValid.y, Math.max(desired.y, limit));
+  if (desired.y !== lastValid.y) {
+    const dir = desired.y > lastValid.y ? 1 : -1;
+    const colMinX = x + local.minX;
+    const colMaxX = x + local.maxX;
+    const shiftedNeighbors = neighbors.map((n) => (pushedX.has(n.id) ? { ...n, x: n.x + pushedX.get(n.id) } : n));
+    const startEdge = dir > 0 ? lastValid.y + local.maxY : lastValid.y + local.minY;
+    const desiredEdge = dir > 0 ? desired.y + local.maxY : desired.y + local.minY;
+    const boundaryEdge = dir > 0 ? bounds.maxY : bounds.minY;
+    const { edge, pushed } = cascadeEdge('y', dir, startEdge, desiredEdge, colMinX, colMaxX, shiftedNeighbors, boundaryEdge, gap);
+    y = dir > 0 ? edge - local.maxY : edge - local.minY;
+    pushed.forEach((v, id) => pushedY.set(id, v));
   }
 
-  return { x, y };
+  const pushed = new Map();
+  neighbors.forEach((n) => {
+    const dx = pushedX.get(n.id) || 0;
+    const dy = pushedY.get(n.id) || 0;
+    if (dx || dy) pushed.set(n.id, { x: n.x + dx, y: n.y + dy });
+  });
+  return { x, y, pushed };
 }
 
-// Hard-stop resolution for a RESIZE. `handle` matters here, not just the
-// two boxes: a corner handle changes width AND height from ONE mouse
-// position, but the two are independent degrees of freedom — a neighbor
-// that only blocks the growing HEIGHT must not also freeze WIDTH, which
-// has nothing to do with it. So each axis the handle actually touches
-// (skipped entirely when `handle.fx`/`fy` is 0.5 — that axis doesn't move
-// for this handle) is bisected separately along the straight line from
-// `startBox` (the gesture's fixed, guaranteed-valid starting box — same
-// "never mutated mid-gesture" value clampResizeToPage already uses) to
-// `candidateBox` (this frame's fully snapped/boundary-clamped target),
-// X first using the start height as the reference row, then Y using the
-// just-resolved width as the reference column — the same sequential
-// pattern resolveMoveCollision uses, adapted to resize's "one edge grows,
-// the opposite edge stays fixed" shape instead of free translation.
-export function resolveResizeCollision(startBox, candidateBox, handle, neighborBoxes, margin = COLLISION_MARGIN) {
-  if (!neighborBoxes.length) return candidateBox;
-  const collides = (box, epsilon = 0) => {
-    const bbox = rotatedBoundingBox(box);
+// Hard-stop fallback for a ROTATED resize's growing edge: cascading push
+// assumes an advancing edge sweeps a page-aligned band, which no longer
+// holds once growth happens along a rotated local axis (widening a
+// rotated box moves BOTH its AABB's X and Y extents at once) — so a
+// rotated item keeps the original bisection-to-first-contact behavior
+// instead (same "opposite edge stays fixed" contract, just capped rather
+// than cascaded). `box` is the frame's current (possibly X-already-
+// resolved) working box.
+function hardStopResizeAxis(axis, startBox, box, neighbors, margin) {
+  const neighborBoxes = collisionBoxes(neighbors, margin);
+  const collides = (b, epsilon = 0) => {
+    const bbox = rotatedBoundingBox(b);
     const expanded = { minX: bbox.minX - margin, maxX: bbox.maxX + margin, minY: bbox.minY - margin, maxY: bbox.maxY + margin };
     return neighborBoxes.some((n) => boxesOverlap(expanded, n, epsilon));
   };
+  const testAt = (t) =>
+    axis === 'x'
+      ? {
+          x: startBox.x + (box.x - startBox.x) * t,
+          y: startBox.y,
+          width: startBox.width + (box.width - startBox.width) * t,
+          height: startBox.height,
+          rotation: box.rotation,
+        }
+      : {
+          x: box.x,
+          y: startBox.y + (box.y - startBox.y) * t,
+          width: box.width,
+          height: startBox.height + (box.height - startBox.height) * t,
+          rotation: box.rotation,
+        };
+  const start = axis === 'x' ? { x: startBox.x, width: startBox.width } : { y: startBox.y, height: startBox.height };
+  const end = axis === 'x' ? { x: box.x, width: box.width } : { y: box.y, height: box.height };
+  if (collides(testAt(0), COLLISION_EPSILON)) return start;
+  if (!collides(testAt(1))) return end;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const t = (lo + hi) / 2;
+    if (collides(testAt(t))) hi = t;
+    else lo = t;
+  }
+  const r = testAt(lo);
+  return axis === 'x' ? { x: r.x, width: r.width } : { y: r.y, height: r.height };
+}
 
+// Per-axis cascading-push resolution for a RESIZE. `handle` matters here,
+// not just the two boxes: a corner handle changes width AND height from
+// ONE mouse position, but the two are independent degrees of freedom — a
+// neighbor that only blocks the growing HEIGHT must not also freeze
+// WIDTH, which has nothing to do with it. Each axis the handle actually
+// touches (skipped entirely when `handle.fx`/`fy` is 0.5 — that axis
+// doesn't move for this handle) advances its growing edge from `startBox`
+// (the gesture's fixed, guaranteed-valid starting box) towards
+// `candidateBox` (this frame's fully snapped/boundary-clamped target),
+// X first using the start height as the reference row, then Y using the
+// just-resolved width as the reference column — the same order
+// resolveMoveCollision uses. The opposite (non-growing) edge never moves,
+// so it never needs to push anything. Only meaningful for an UNROTATED
+// item — see hardStopResizeAxis for the rotated fallback.
+export function resolveResizeCollision(startBox, candidateBox, handle, neighbors, bounds, margin = COLLISION_MARGIN) {
+  const rotation = candidateBox.rotation || 0;
+  if (!neighbors.length) return { x: candidateBox.x, y: candidateBox.y, width: candidateBox.width, height: candidateBox.height, rotation, pushed: new Map() };
+  const gap = margin * 2;
   let x = candidateBox.x;
+  let y = candidateBox.y;
   let width = candidateBox.width;
+  let height = candidateBox.height;
+  const pushedX = new Map();
+  const pushedY = new Map();
+
   if (handle.fx !== 0.5) {
-    const testX = (t) => ({
-      x: startBox.x + (candidateBox.x - startBox.x) * t,
-      y: startBox.y,
-      width: startBox.width + (candidateBox.width - startBox.width) * t,
-      height: startBox.height,
-      rotation: candidateBox.rotation,
-    });
-    if (collides(testX(0), COLLISION_EPSILON)) {
-      // Defensive: this axis was already invalid before the gesture even
-      // moved it (a real, if rare, possibility now that a neighbor's
-      // collision box can be a live-measured effective size rather than a
-      // fixed stored one — epsilon absorbs sub-pixel measurement noise
-      // right at the boundary rather than freezing every future gesture
-      // over a fraction of a pixel) — stay exactly where it was rather
-      // than let an unclamped candidate slip through.
-      x = startBox.x;
-      width = startBox.width;
-    } else if (collides(testX(1))) {
-      let lo = 0;
-      let hi = 1;
-      for (let i = 0; i < 24; i++) {
-        const t = (lo + hi) / 2;
-        if (collides(testX(t))) hi = t;
-        else lo = t;
+    if (rotation === 0) {
+      const dir = handle.fx === 1 ? 1 : -1;
+      const fixedX = dir > 0 ? candidateBox.x : candidateBox.x + candidateBox.width;
+      const rowMinY = startBox.y;
+      const rowMaxY = startBox.y + startBox.height;
+      const startEdge = dir > 0 ? startBox.x + startBox.width : startBox.x;
+      const desiredEdge = dir > 0 ? candidateBox.x + candidateBox.width : candidateBox.x;
+      const boundaryEdge = dir > 0 ? bounds.maxX : bounds.minX;
+      const { edge, pushed } = cascadeEdge('x', dir, startEdge, desiredEdge, rowMinY, rowMaxY, neighbors, boundaryEdge, gap);
+      if (dir > 0) {
+        x = fixedX;
+        width = Math.max(16, edge - fixedX);
+      } else {
+        x = edge;
+        width = Math.max(16, fixedX - edge);
       }
-      const r = testX(lo);
+      pushed.forEach((v, id) => pushedX.set(id, v));
+    } else {
+      const r = hardStopResizeAxis('x', startBox, { x, y, width, height, rotation }, neighbors, margin);
       x = r.x;
       width = r.width;
     }
   }
 
-  let y = candidateBox.y;
-  let height = candidateBox.height;
   if (handle.fy !== 0.5) {
-    const testY = (t) => ({
-      x,
-      y: startBox.y + (candidateBox.y - startBox.y) * t,
-      width,
-      height: startBox.height + (candidateBox.height - startBox.height) * t,
-      rotation: candidateBox.rotation,
-    });
-    if (collides(testY(0), COLLISION_EPSILON)) {
-      y = startBox.y;
-      height = startBox.height;
-    } else if (collides(testY(1))) {
-      let lo = 0;
-      let hi = 1;
-      for (let i = 0; i < 24; i++) {
-        const t = (lo + hi) / 2;
-        if (collides(testY(t))) hi = t;
-        else lo = t;
+    if (rotation === 0) {
+      const dir = handle.fy === 1 ? 1 : -1;
+      const fixedY = dir > 0 ? candidateBox.y : candidateBox.y + candidateBox.height;
+      const shiftedNeighbors = neighbors.map((n) => (pushedX.has(n.id) ? { ...n, x: n.x + pushedX.get(n.id) } : n));
+      const colMinX = x;
+      const colMaxX = x + width;
+      const startEdge = dir > 0 ? startBox.y + startBox.height : startBox.y;
+      const desiredEdge = dir > 0 ? candidateBox.y + candidateBox.height : candidateBox.y;
+      const boundaryEdge = dir > 0 ? bounds.maxY : bounds.minY;
+      const { edge, pushed } = cascadeEdge('y', dir, startEdge, desiredEdge, colMinX, colMaxX, shiftedNeighbors, boundaryEdge, gap);
+      if (dir > 0) {
+        y = fixedY;
+        height = Math.max(16, edge - fixedY);
+      } else {
+        y = edge;
+        height = Math.max(16, fixedY - edge);
       }
-      const r = testY(lo);
+      pushed.forEach((v, id) => pushedY.set(id, v));
+    } else {
+      const r = hardStopResizeAxis('y', startBox, { x, y, width, height, rotation }, neighbors, margin);
       y = r.y;
       height = r.height;
     }
   }
 
-  return { x, y, width, height, rotation: candidateBox.rotation };
+  const pushed = new Map();
+  neighbors.forEach((n) => {
+    const dx = pushedX.get(n.id) || 0;
+    const dy = pushedY.get(n.id) || 0;
+    if (dx || dy) pushed.set(n.id, { x: n.x + dx, y: n.y + dy });
+  });
+  return { x, y, width, height, rotation, pushed };
 }
 
 // Hard boundary constraint for a MOVE: clamp a box's position so it never
