@@ -3,6 +3,7 @@ import { useEditor } from '../../state/EditorContext';
 import { detectRail } from '../../data/shapeCatalog';
 import { beginDragSelectGuard } from '../../utils/dragGuard';
 import CanvasItem from './CanvasItem';
+import GroupSelectionOverlay from './GroupSelectionOverlay';
 
 // Single free-positioning canvas for every item — shape or content. Shapes
 // still paint as background decoration: the shape group is painted first,
@@ -73,6 +74,8 @@ export default function CanvasLayer({ readOnly = false }) {
       {contentItems.map((item) => (
         <CanvasItem key={item.id} item={item} readOnly={readOnly} />
       ))}
+
+      {!readOnly && <GroupSelectionOverlay />}
 
       {!readOnly && rails.map(({ shape, rail }) => (
         <div

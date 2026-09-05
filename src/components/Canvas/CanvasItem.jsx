@@ -482,7 +482,7 @@ function ShapeBody({ item }) {
   );
 }
 
-const RotateIcon = (
+export const RotateIcon = (
   <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
     <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
     <path d="M20 4v6h-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -522,6 +522,19 @@ export default function CanvasItem({ item, readOnly = false }) {
   const isPartSelected = (part) =>
     !readOnly && !!selection.part && selection.part.id === item.id && selection.part.key === part;
   const isWholeSelected = isSelected && !(selection.part && selection.part.id === item.id);
+  // Prompt 18: once 2+ MOVABLE items are selected, the shared
+  // GroupSelectionOverlay takes over resize/rotate entirely (one group
+  // box, one set of 8+1 handles, matching Figma/Illustrator/Sketch/Canva
+  // convention) — individual per-item handles disappear, even though
+  // each item stays individually outlined/selected underneath it. A
+  // locked item never contributes a handle of its own anyway, so it
+  // doesn't count toward "how many movable items" for this purpose —
+  // selecting one movable item alongside a locked one still shows that
+  // one item's own handles, same as a true single selection would.
+  const selectedMovableCount = !readOnly
+    ? template.items.filter((i) => selection.ids.includes(i.id) && !i.locked).length
+    : 0;
+  const showIndividualHandles = isSelected && !item.locked && selectedMovableCount <= 1;
 
   const [live, setLive] = useState(null); // { x, y, width, height, rotation } while dragging
   const [rotationSnapped, setRotationSnapped] = useState(false);
@@ -778,7 +791,6 @@ export default function CanvasItem({ item, readOnly = false }) {
     let lastShift = { dx: 0, dy: 0 };
     let finalShift = lastShift;
     let finalPushed = new Map();
-    const primaryStart = starts.find((s) => s.id === item.id) || { origX: item.x, origY: item.y };
 
     const onMove = (ev) => {
       draggedRef.current = true;
@@ -805,9 +817,14 @@ export default function CanvasItem({ item, readOnly = false }) {
       finalShift = lastShift;
       finalPushed = pushed;
 
+      // Prompt 18: EVERY member — including `item` itself, the one whose
+      // own mousedown started this gesture — goes through the shared
+      // pushPreview channel rather than `item`'s own local `live` state,
+      // so GroupSelectionOverlay's box (which reads pushPreview, not any
+      // one CanvasItem's private state) can track the live drag too.
       const preview = {};
       starts.forEach(({ id, origX, origY }) => {
-        if (id !== item.id) preview[id] = { x: origX + dx, y: origY + dy };
+        preview[id] = { x: origX + dx, y: origY + dy };
       });
       pushed.forEach((pos, id) => {
         preview[id] = pos;
@@ -825,7 +842,6 @@ export default function CanvasItem({ item, readOnly = false }) {
       });
 
       setEdgeHighlight(edges);
-      setLive({ x: primaryStart.origX + dx, y: primaryStart.origY + dy });
       setPushPreview(preview);
     };
     const onUp = () => {
@@ -1171,7 +1187,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         });
       })()}
 
-      {isSelected && !item.locked && (() => {
+      {showIndividualHandles && (() => {
         // "left/right/top/bottom" only stays well-defined for an
         // unrotated item — a rotated one just keeps the fixed offset
         // (Infinity clearance on every side is adaptiveHandleOffset's

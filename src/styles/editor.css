@@ -418,6 +418,22 @@ body {
 
 /* ---------- Resize (8-point) + rotate handles ---------- */
 
+/* Prompt 18 — the shared multi-selection bounding box (replaces every
+   individual item's own handles while 2+ movable items are selected).
+   `pointer-events: none` on the box itself lets clicks in its empty
+   interior pass straight through to whatever item is actually there
+   (each handle re-enables its own pointer-events explicitly, inline). */
+.group-selection-box {
+  pointer-events: none;
+}
+.group-selection-box::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid var(--purple-500);
+  pointer-events: none;
+}
+
 .item__resize-handle {
   position: absolute;
   z-index: 2;
