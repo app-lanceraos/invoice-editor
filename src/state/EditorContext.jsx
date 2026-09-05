@@ -176,9 +176,16 @@ export function EditorProvider({ children }) {
     [template, commit, itemsById]
   );
 
+  // Prompt 21 item 2: content items are single-instance, full stop — a
+  // content item is silently excluded from duplication (never an error,
+  // never a partial/confusing duplicate of just its "container") rather
+  // than blocking the whole gesture, so duplicating a mixed shape+
+  // content selection still duplicates the shape(s) in it. Shapes are
+  // completely unaffected — this only ever narrows `source`, and only
+  // when a content item is present.
   const duplicateItems = useCallback(
     (ids) => {
-      const source = template.items.filter((i) => ids.includes(i.id) && !i.locked);
+      const source = template.items.filter((i) => ids.includes(i.id) && !i.locked && i.kind === 'shape');
       if (source.length === 0) return;
       const copies = source.map((i) => ({
         ...i,
@@ -194,18 +201,22 @@ export function EditorProvider({ children }) {
 
   // Pasting whatever was copied earlier (this session or from another
   // template) — always adds fresh instances offset slightly so they're
-  // visible rather than stacked exactly on the originals; works the same
-  // for a shape or a content item. `itemsData` is always an array (see
-  // clipboard.js) — a single copied item is just a one-element array, and
-  // a multi-item copy pastes the WHOLE group in one commit, each item
-  // getting the exact same offset so their relative positions to each
-  // other are preserved (Prompt 16 item 6) rather than every pasted item
-  // landing stacked on the same spot.
+  // visible rather than stacked exactly on the originals. `itemsData` is
+  // always an array (see clipboard.js) — a single copied item is just a
+  // one-element array, and a multi-item copy pastes the WHOLE group in
+  // one commit, each item getting the exact same offset so their
+  // relative positions to each other are preserved (Prompt 16 item 6)
+  // rather than every pasted item landing stacked on the same spot.
+  // Prompt 21 item 2: content items are single-instance — filtered out
+  // here too (not just at copy time), a defensive second gate since a
+  // clipboard entry could be stale (copied before this rule existed, or
+  // from another tab/session via the shared localStorage clipboard).
   const addItemsFromClipboard = useCallback(
     (itemsData) => {
-      if (!itemsData || itemsData.length === 0) return;
+      const shapesOnly = (itemsData || []).filter((d) => d.kind === 'shape');
+      if (shapesOnly.length === 0) return;
       const stamp = Date.now();
-      const pasted = itemsData.map((itemData, i) => ({
+      const pasted = shapesOnly.map((itemData, i) => ({
         ...itemData,
         id: `${itemData.kind}-${stamp}-${i}-${Math.random().toString(36).slice(2, 7)}`,
         x: itemData.x + 16,

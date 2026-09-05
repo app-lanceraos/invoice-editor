@@ -6,11 +6,15 @@ import { copyFormatting, readFormatting, captureFormatting, formattingPatch } fr
 // A single item's own available actions, independent of what else is
 // selected — the menu shown for a multi-selection is the genuine
 // intersection of these across every selected item (Prompt 15), not a
-// separate hardcoded "multi-select menu".
+// separate hardcoded "multi-select menu". Duplicate/copy are deliberately
+// NOT in this per-item set (Prompt 21 item 2: content items are single-
+// instance, full stop) — they're gated separately below by "does ANY
+// selected item support it," not the intersection, so a mixed shape+
+// content selection still shows Duplicate and acts on just the shape(s),
+// rather than the whole action disappearing because one member can't.
 function itemCapabilities(item) {
   const caps = new Set();
   if (item.locked) return caps; // the footer: selectable, but no destructive/structural actions
-  caps.add('duplicate');
   caps.add('delete');
   if (item.kind === 'content' || item.type === 'roundedRect') caps.add('reset-radius');
   return caps;
@@ -55,7 +59,14 @@ export default function ContextMenu() {
   const commonCaps = selectedItems.map(itemCapabilities).reduce((a, b) => new Set([...a].filter((x) => b.has(x))));
 
   const canGroup = selectedItems.length >= 2 && selectedItems.every((i) => !i.locked);
-  const canCopy = !!single && !part; // matches the existing Cmd+C shortcut's own single-whole-item scope
+  // Prompt 21 item 2: content items can't be duplicated/copied at all —
+  // `canDuplicate` uses "at least one shape in the selection" (not the
+  // Prompt 15 intersection every OTHER capability here uses) so the
+  // action stays available and does the right partial thing for a mixed
+  // selection; `canCopy` narrows the existing single-whole-item scope to
+  // shapes only, since copying a lone content item would do nothing.
+  const canDuplicate = selectedItems.some((i) => i.kind === 'shape' && !i.locked);
+  const canCopy = !!single && !part && single.kind === 'shape';
   const canCopyFormatting = !!single;
   const canPasteFormatting = !!formatClip && selectedItems.length > 0;
   const canSelectWholeContainer = !!single && !!part;
@@ -68,7 +79,7 @@ export default function ContextMenu() {
       run: () => setSelection({ ids: [single.id], part: null }),
     });
   }
-  if (commonCaps.has('duplicate')) {
+  if (canDuplicate) {
     actions.push({ key: 'duplicate', label: 'Duplicate', run: () => duplicateItems(selection.ids) });
   }
   if (canCopy) {

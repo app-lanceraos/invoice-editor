@@ -44,9 +44,15 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
         return;
       }
 
+      // Prompt 21 item 2: content items are single-instance and never go
+      // to the clipboard at all — copying a mixed shape+content
+      // selection copies just the shape(s); a pure-content selection
+      // copies nothing (and leaves whatever was already on the
+      // clipboard untouched, rather than clobbering it with an empty
+      // payload).
       if (mod && e.key.toLowerCase() === 'c') {
         if (selection.ids.length > 0) {
-          const items = template.items.filter((i) => selection.ids.includes(i.id));
+          const items = template.items.filter((i) => selection.ids.includes(i.id) && i.kind === 'shape');
           if (items.length > 0) copyToClipboard({ items });
         }
         return;

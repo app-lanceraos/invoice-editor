@@ -183,7 +183,7 @@ export const ELEMENT_TYPES = {
   tax: {
     label: 'Tax',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'label-value',
     spread: true,
     defaultBox: { x: 542, y: 416, width: 220, height: 14 },
@@ -192,7 +192,7 @@ export const ELEMENT_TYPES = {
   discount: {
     label: 'Discount',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'label-value',
     spread: true,
     defaultBox: { x: 542, y: 442, width: 220, height: 14 },
@@ -214,17 +214,25 @@ export const ELEMENT_TYPES = {
   currencyConversion: {
     label: 'Currency conversion',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'note',
     defaultBox: { x: 542, y: 498, width: 220, height: 16 },
     render: () => '≈ PKR 826,000 at rate 278.0',
   },
+  // Prompt 21: the lower section (notes/terms/payment methods/pay online/
+  // signature) is where "everything defaultOn" actually collides —
+  // these 7 items' positions were re-laid-out from scratch as one
+  // coherent two-column group (notes+terms left, payment info+QR right)
+  // rather than the old single-column stack these boxes never had to
+  // coexist with each other at before. See design_layout.mjs-style
+  // verification in the Prompt 21 report: zero overlaps across the full
+  // 21-item default set, no sizes needed to shrink to fit.
   notes: {
     label: 'Notes',
     required: false,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 32, y: 920, width: 340, height: 26 },
+    defaultBox: { x: 32, y: 700, width: 340, height: 26 },
     // A single-line block: that one line is `required` (not individually
     // removable) since deleting it would just leave an empty card behind —
     // removing the whole thing is what the top-level toggle is for.
@@ -238,9 +246,9 @@ export const ELEMENT_TYPES = {
   terms: {
     label: 'Terms',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 32, y: 980, width: 340, height: 26 },
+    defaultBox: { x: 32, y: 746, width: 340, height: 26 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'Terms' },
       lines: [
@@ -253,7 +261,7 @@ export const ELEMENT_TYPES = {
     required: false,
     defaultOn: true,
     variant: 'block',
-    defaultBox: { x: 400, y: 920, width: 340, height: 36 },
+    defaultBox: { x: 400, y: 700, width: 340, height: 36 },
     render: () => ({
       title: { key: 'title', label: 'Title', text: 'Payment methods' },
       lines: [
@@ -265,9 +273,9 @@ export const ELEMENT_TYPES = {
   payOnline: {
     label: 'Pay online',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'qr',
-    defaultBox: { x: 650, y: 930, width: 110, height: 130 },
+    defaultBox: { x: 400, y: 750, width: 110, height: 130 },
     render: () => ({ label: 'Pay online', link: PAY_LINK, qrPath: QR_PATH, qrSize: QR_SIZE }),
   },
   // The original template composed a signature out of three stacked
@@ -280,7 +288,7 @@ export const ELEMENT_TYPES = {
   signatureImage: {
     label: 'Signature image',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'image',
     // width:height matches signature.png's own visible-content aspect
     // ratio (~1.06:1, nearly square) — the old 110x35 box was much wider
@@ -289,23 +297,23 @@ export const ELEMENT_TYPES = {
     // empty margin inside the item's own bounding box/selection outline
     // (Prompt 16 item 2). Matching the aspect ratio here means the image
     // fills its box edge-to-edge, so the box IS the visible content.
-    defaultBox: { x: 32, y: 1028, width: 37, height: 35 },
+    defaultBox: { x: 32, y: 800, width: 37, height: 35 },
     render: () => ({ kind: 'image', placeholder: 'signature' }),
   },
   signatureDivider: {
     label: 'Signature divider',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'divider',
-    defaultBox: { x: 32, y: 1065, width: 110, height: 3 },
+    defaultBox: { x: 32, y: 845, width: 110, height: 3 },
     render: () => null,
   },
   signatureLabel: {
     label: 'Signature label',
     required: false,
-    defaultOn: false,
+    defaultOn: true,
     variant: 'text',
-    defaultBox: { x: 32, y: 1070, width: 110, height: 16 },
+    defaultBox: { x: 32, y: 854, width: 110, height: 16 },
     render: () => 'Authorised Signature',
   },
   // Fixed page chrome, not an optional element: `hidden` keeps it out of the
