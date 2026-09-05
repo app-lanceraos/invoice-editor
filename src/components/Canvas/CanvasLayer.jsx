@@ -11,8 +11,8 @@ import GroupSelectionOverlay from './GroupSelectionOverlay';
 // regardless of where either sits in the underlying flat `template.items`
 // array (which only orders items relative to their own kind-group).
 export default function CanvasLayer({ readOnly = false }) {
-  const { template, selection, setSelection, guides } = useEditor();
-  const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas
+  const { template, selection, setSelection, guides, zoom } = useEditor();
+  const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas, in PAGE units
 
   const shapes = template.items.filter((i) => i.kind === 'shape');
   const contentItems = template.items.filter((i) => i.kind === 'content');
@@ -20,8 +20,17 @@ export default function CanvasLayer({ readOnly = false }) {
   const startMarquee = (e) => {
     if (e.target !== e.currentTarget) return; // only start on empty canvas, not on an item
     const restoreSelection = beginDragSelectGuard();
+    // Prompt 22: `.canvas-layer` is itself a child of the CSS-zoomed
+    // `.page-frame`, so its OWN getBoundingClientRect() already comes
+    // back at the current on-screen (zoomed) size — dividing by `scale`
+    // here converts the cursor's screen-pixel offset within it into true
+    // PAGE units, which is what `marquee` is now tracked in throughout
+    // (matching every item's own x/y/width/height) so both the live
+    // rendering below and the final hit-test compare page-units to
+    // page-units consistently, not screen-pixels to page-units.
+    const scale = zoom / 100;
     const rect = e.currentTarget.getBoundingClientRect();
-    const start = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const start = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
     setSelection({ ids: [], part: null });
 
     let currentBox = null; // tracked locally, not via React state, so onUp can
@@ -29,7 +38,7 @@ export default function CanvasLayer({ readOnly = false }) {
     // setSelection call inside setMarquee's own updater function.
 
     const onMove = (ev) => {
-      const cur = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+      const cur = { x: (ev.clientX - rect.left) / scale, y: (ev.clientY - rect.top) / scale };
       currentBox = {
         x: Math.min(start.x, cur.x),
         y: Math.min(start.y, cur.y),

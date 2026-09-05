@@ -70,6 +70,7 @@ export default function GroupSelectionOverlay() {
     setPushPreview,
     setEdgeHighlight,
     setGuides,
+    zoom,
   } = useEditor();
 
   const movableMembers = template.items.filter((i) => selection.ids.includes(i.id) && !i.locked);
@@ -121,6 +122,7 @@ export default function GroupSelectionOverlay() {
     const restoreSelection = beginDragSelectGuard();
     const startBox = { ...groupBox, rotation: 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
+    const scale = zoom / 100; // Prompt 22 — see CanvasItem's beginMove comment
     const starts = movableMembers.map((m) => ({
       id: m.id,
       item: m,
@@ -133,7 +135,9 @@ export default function GroupSelectionOverlay() {
     let finalPatches = null;
 
     const onMove = (ev) => {
-      const raw = resizeRotatedBox(startBox, handle, ev.clientX - startMouse.x, ev.clientY - startMouse.y, 16);
+      // Prompt 22: screen-pixel delta -> page units before it reaches the
+      // group box's own resize math.
+      const raw = resizeRotatedBox(startBox, handle, (ev.clientX - startMouse.x) / scale, (ev.clientY - startMouse.y) / scale, 16);
       let box = { x: raw.x, y: raw.y, width: raw.width, height: raw.height, rotation: 0 };
       let edges = null;
       if (bounds) {
@@ -191,11 +195,30 @@ export default function GroupSelectionOverlay() {
   // already has none either; a rotating hull's collision against outside
   // items is a materially harder problem than the linear cascades used
   // everywhere else, deliberately out of scope for this pass.
+  //
+  // Prompt 22 audit finding: this had a real, PRE-EXISTING bug (not
+  // itself caused by zoom, but exposed by the same audit) — the angle
+  // math mixed `pageCenter` (page-unit space, from groupBox) directly
+  // with `e.clientX/clientY` (screen/viewport-pixel space) in the same
+  // atan2 call. Those coordinate spaces are never the same (the page-
+  // frame never sits at screen (0,0) — scroll position, panel widths,
+  // and canvas padding all offset it), so the computed angle was already
+  // subtly wrong before zoom ever entered the picture, and zoom would
+  // only have compounded it further. Fixed the same way a single item's
+  // own beginRotate already gets this right: a SEPARATE screen-space
+  // center, measured via getBoundingClientRect on the group box's own
+  // DOM node (which already reflects any CSS zoom transform, same
+  // reasoning as beginRotate's own comment) — used ONLY for the angle.
+  // The page-unit `pageCenter` is kept, unchanged, for the actual
+  // position-orbit math below, since every member's stored x/y is in
+  // page units too.
   const beginGroupRotate = (e) => {
     e.stopPropagation();
     e.preventDefault();
     const restoreSelection = beginDragSelectGuard();
-    const center = { x: groupBox.x + groupBox.width / 2, y: groupBox.y + groupBox.height / 2 };
+    const pageCenter = { x: groupBox.x + groupBox.width / 2, y: groupBox.y + groupBox.height / 2 };
+    const screenRect = e.currentTarget.parentElement.getBoundingClientRect();
+    const screenCenter = { x: screenRect.left + screenRect.width / 2, y: screenRect.top + screenRect.height / 2 };
     const starts = movableMembers.map((m) => ({
       id: m.id,
       origX: m.x,
@@ -204,22 +227,22 @@ export default function GroupSelectionOverlay() {
       height: m.height,
       origRotation: m.rotation || 0,
     }));
-    const startAngle = Math.round((Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) / Math.PI + 90);
+    const startAngle = Math.round((Math.atan2(e.clientY - screenCenter.y, e.clientX - screenCenter.x) * 180) / Math.PI + 90);
     let finalPatches = null;
 
     const onMove = (ev) => {
-      const rawAngle = Math.round((Math.atan2(ev.clientY - center.y, ev.clientX - center.x) * 180) / Math.PI + 90);
+      const rawAngle = Math.round((Math.atan2(ev.clientY - screenCenter.y, ev.clientX - screenCenter.x) * 180) / Math.PI + 90);
       const { value: delta, snapped } = snapRotation(rawAngle - startAngle);
       setRotationSnapped(snapped);
 
       const patches = new Map();
       starts.forEach((s) => {
-        const relX = s.origX + s.width / 2 - center.x;
-        const relY = s.origY + s.height / 2 - center.y;
+        const relX = s.origX + s.width / 2 - pageCenter.x;
+        const relY = s.origY + s.height / 2 - pageCenter.y;
         const rotated = rotateVector(relX, relY, delta);
         patches.set(s.id, {
-          x: center.x + rotated.x - s.width / 2,
-          y: center.y + rotated.y - s.height / 2,
+          x: pageCenter.x + rotated.x - s.width / 2,
+          y: pageCenter.y + rotated.y - s.height / 2,
           rotation: s.origRotation + delta,
         });
       });

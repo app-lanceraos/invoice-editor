@@ -506,13 +506,25 @@ export const RotateIcon = (
 // edge-glow already covers that). `wasSnapped` is this same axis's
 // engagement state from the previous frame (item 3's hysteresis); the
 // result's `snapped` is the new state to carry into the next frame.
-function resolveAxisSnap({ pos, size, candidates, rowNeighbors, wasSnapped, crossMin, crossMax, pageCrossSize }) {
-  const tolerance = wasSnapped ? SNAP_RELEASE_TOLERANCE : SNAP_ENGAGE_TOLERANCE;
+//
+// Prompt 22: `scale` is the canvas's current zoom factor (1 at 100%,
+// 0.5 at 50%, etc.) — every tolerance here is a PAGE-UNIT distance, but
+// the actual UX goal is a constant-feeling SCREEN-pixel snap radius, so
+// both tolerances are divided by `scale` before use: zoomed OUT, each
+// screen pixel of mouse wobble covers MORE page-units, so the page-unit
+// tolerance needs to grow to match; zoomed IN, the reverse. Verified by
+// testing at 50%/100%/150% — a fixed page-unit tolerance felt twitchy
+// zoomed in and unreachably tight zoomed out, while this scaled version
+// felt identically "sticky" at every level tried.
+function resolveAxisSnap({ pos, size, candidates, rowNeighbors, wasSnapped, crossMin, crossMax, pageCrossSize, scale = 1 }) {
+  const engageTolerance = SNAP_ENGAGE_TOLERANCE / scale;
+  const releaseTolerance = SNAP_RELEASE_TOLERANCE / scale;
+  const tolerance = wasSnapped ? releaseTolerance : engageTolerance;
   const equal = rowNeighbors.length >= 2 ? detectEqualSpacing(pos, size, rowNeighbors, tolerance) : null;
   if (equal) {
     return { delta: equal.targetPos - pos, snapped: true, spacing: equal.gaps, line: null };
   }
-  const match = findStickySnap(pos, size, candidates, wasSnapped);
+  const match = findStickySnap(pos, size, candidates, wasSnapped, engageTolerance, releaseTolerance);
   if (!match) return { delta: 0, snapped: false, spacing: [], line: null };
   if (match.candidate.isBoundary) {
     return { delta: match.delta, snapped: true, spacing: [], line: null };
@@ -547,6 +559,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     pushPreview,
     setPushPreview,
     setContextMenu,
+    zoom,
   } = useEditor();
   const def = item.kind === 'content' ? ELEMENT_TYPES[item.type] : null;
 
@@ -687,6 +700,10 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const restoreSelection = beginDragSelectGuard();
     const start = { x: e.clientX, y: e.clientY, origX: item.x, origY: item.y };
+    // Prompt 22: captured once per gesture (mirroring `start` itself) —
+    // every raw screen-pixel mouse delta below gets divided by this
+    // before it ever touches a page-unit coordinate.
+    const scale = zoom / 100;
     const others = template.items.filter((i) => i.id !== item.id);
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     // Prompt 19: the guide-eligible candidates (other items' edges/
@@ -719,8 +736,8 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const onMove = (ev) => {
       draggedRef.current = true;
-      let nx = start.origX + (ev.clientX - start.x);
-      let ny = start.origY + (ev.clientY - start.y);
+      let nx = start.origX + (ev.clientX - start.x) / scale;
+      let ny = start.origY + (ev.clientY - start.y) / scale;
 
       // Prompt 19 item 2: who's "in the same row/column" as the dragged
       // box right now — same overlap test the old distance-label always
@@ -743,6 +760,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         crossMin: ny,
         crossMax: ny + item.height,
         pageCrossSize: template.page.height,
+        scale,
       });
       nx += snapX.delta;
       stickyX = snapX.snapped;
@@ -756,6 +774,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         crossMin: nx,
         crossMax: nx + item.width,
         pageCrossSize: template.page.width,
+        scale,
       });
       ny += snapY.delta;
       stickyY = snapY.snapped;
@@ -860,6 +879,7 @@ export default function CanvasItem({ item, readOnly = false }) {
   const beginGroupMove = (e, groupMembers) => {
     const restoreSelection = beginDragSelectGuard();
     const start = { x: e.clientX, y: e.clientY };
+    const scale = zoom / 100; // Prompt 22 — see beginMove's own comment
     const footerTop = getFooterTop(template.items, template.page);
     const starts = groupMembers.map((m) => ({ id: m.id, item: m, origX: m.x, origY: m.y }));
     const groupIdSet = new Set(groupMembers.map((m) => m.id));
@@ -935,8 +955,11 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const onMove = (ev) => {
       draggedRef.current = true;
-      const rawDx = ev.clientX - start.x;
-      const rawDy = ev.clientY - start.y;
+      // Prompt 22: raw screen-pixel deltas converted to page units before
+      // anything downstream (snap, boundary clamp, collision) ever sees
+      // them.
+      const rawDx = (ev.clientX - start.x) / scale;
+      const rawDy = (ev.clientY - start.y) / scale;
 
       // Prompt 19 item 4: snap the GROUP's own envelope against outside
       // items/page-center before the per-member boundary clamp below —
@@ -953,6 +976,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         crossMin: candidateY,
         crossMax: candidateY + guideEnvelope.height,
         pageCrossSize: template.page.height,
+        scale,
       });
       stickyX = snapX.snapped;
       const snapY = resolveAxisSnap({
@@ -964,6 +988,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         crossMin: candidateX + snapX.delta,
         crossMax: candidateX + snapX.delta + guideEnvelope.width,
         pageCrossSize: template.page.width,
+        scale,
       });
       stickyY = snapY.snapped;
 
@@ -1050,6 +1075,7 @@ export default function CanvasItem({ item, readOnly = false }) {
     const restoreSelection = beginDragSelectGuard();
     const start = { x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation || 0 };
     const startMouse = { x: e.clientX, y: e.clientY };
+    const scale = zoom / 100; // Prompt 22 — see beginMove's own comment
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     const others = template.items.filter((i) => i.id !== item.id);
     // Prompt 19: same candidate set a move drag snaps against — every
@@ -1072,7 +1098,9 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const onMove = (ev) => {
       draggedRef.current = true;
-      const raw = resizeRotatedBox(start, handle, ev.clientX - startMouse.x, ev.clientY - startMouse.y);
+      // Prompt 22: raw screen-pixel mouse delta -> page units, BEFORE it
+      // ever reaches resizeRotatedBox's own width/height/position math.
+      const raw = resizeRotatedBox(start, handle, (ev.clientX - startMouse.x) / scale, (ev.clientY - startMouse.y) / scale);
 
       // Snap only the edge this handle actually moves, keeping the other
       // (fixed) edge untouched — e.g. dragging the W handle may shift x
@@ -1084,24 +1112,24 @@ export default function CanvasItem({ item, readOnly = false }) {
       let lineX = null;
       let lineY = null;
       if (handle.fx === 1) {
-        const snap = resolveAxisSnap({ pos: raw.x + raw.width, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height });
+        const snap = resolveAxisSnap({ pos: raw.x + raw.width, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height, scale });
         raw.width += snap.delta;
         stickyX = snap.snapped;
         lineX = snap.line;
       } else if (handle.fx === 0) {
-        const snap = resolveAxisSnap({ pos: raw.x, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height });
+        const snap = resolveAxisSnap({ pos: raw.x, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height, scale });
         raw.x += snap.delta;
         raw.width -= snap.delta;
         stickyX = snap.snapped;
         lineX = snap.line;
       }
       if (handle.fy === 1) {
-        const snap = resolveAxisSnap({ pos: raw.y + raw.height, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width });
+        const snap = resolveAxisSnap({ pos: raw.y + raw.height, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width, scale });
         raw.height += snap.delta;
         stickyY = snap.snapped;
         lineY = snap.line;
       } else if (handle.fy === 0) {
-        const snap = resolveAxisSnap({ pos: raw.y, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width });
+        const snap = resolveAxisSnap({ pos: raw.y, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width, scale });
         raw.y += snap.delta;
         raw.height -= snap.delta;
         stickyY = snap.snapped;
@@ -1163,6 +1191,17 @@ export default function CanvasItem({ item, readOnly = false }) {
     window.addEventListener('mouseup', onUp);
   };
 
+  // Prompt 22 audit: rotate needs NO zoom conversion at all, single-item
+  // or group. The angle comes from atan2 of the mouse's position relative
+  // to a CENTER already measured via getBoundingClientRect — a browser-
+  // computed SCREEN-space rect that already reflects the page-frame's
+  // current CSS zoom transform automatically — and both sides of that
+  // atan2 (the center and `ev.clientX/clientY`) live in the SAME screen
+  // space throughout. An angle is a ratio (dy/dx via atan2), not a raw
+  // magnitude, so it's scale-invariant by construction: doubling both dx
+  // and dy (as zoom would, if it affected this at all) never changes the
+  // angle between them. Confirmed by testing at 50%/150% — rotation felt
+  // and behaved identically to 100%.
   const beginRotate = (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -1231,11 +1270,16 @@ export default function CanvasItem({ item, readOnly = false }) {
     const startWidths = item.columnWidths || defaultColumnWidths(numCols);
     const startMouse = { x: e.clientX, y: e.clientY };
     const rotation = item.rotation || 0;
+    const scale = zoom / 100; // Prompt 22 — see beginMove's own comment
     let finalWidths = null;
 
     const onMove = (ev) => {
       draggedRef.current = true;
-      const local = rotateVector(ev.clientX - startMouse.x, ev.clientY - startMouse.y, -rotation);
+      // Prompt 22: screen-pixel delta -> page units before rotateVector
+      // (rotateVector is linear, so dividing before or after is
+      // equivalent — doing it before keeps every downstream value in
+      // page units consistently, matching every other gesture here).
+      const local = rotateVector((ev.clientX - startMouse.x) / scale, (ev.clientY - startMouse.y) / scale, -rotation);
       const deltaPct = (local.x / item.width) * 100;
       const widths = [...startWidths];
       let a = startWidths[colIndex] + deltaPct;

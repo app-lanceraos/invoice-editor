@@ -203,8 +203,15 @@ export function findNearestSnap(pos, size, candidates, tolerance) {
 // frames and passes it back in each call.
 export const SNAP_ENGAGE_TOLERANCE = 4;
 export const SNAP_RELEASE_TOLERANCE = 10;
-export function findStickySnap(pos, size, candidates, wasSnapped) {
-  const tolerance = wasSnapped ? SNAP_RELEASE_TOLERANCE : SNAP_ENGAGE_TOLERANCE;
+// Prompt 22: `engageTolerance`/`releaseTolerance` are optional overrides
+// of the two constants above — the caller (CanvasItem's resolveAxisSnap)
+// divides them by the current canvas zoom's scale factor before passing
+// them in, so a fixed-feeling SCREEN-pixel tolerance (the actual UX goal)
+// holds at any zoom level even though these are, underneath, page-unit
+// thresholds. Left un-overridden, behavior is identical to before zoom
+// existed.
+export function findStickySnap(pos, size, candidates, wasSnapped, engageTolerance = SNAP_ENGAGE_TOLERANCE, releaseTolerance = SNAP_RELEASE_TOLERANCE) {
+  const tolerance = wasSnapped ? releaseTolerance : engageTolerance;
   return findNearestSnap(pos, size, candidates, tolerance);
 }
 

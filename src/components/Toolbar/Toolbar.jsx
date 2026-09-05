@@ -6,7 +6,23 @@ export default function Toolbar({ onPreview }) {
   const {
     canUndo, canRedo, undo, redo, runSave,
     template, selection, deleteItems, deleteBlockLine, duplicateItems, groupItems,
+    zoom, setZoom, canvasViewportRef,
   } = useEditor();
+
+  // Prompt 22 item 4: fits `template.page.width/height` into whatever the
+  // canvas viewport currently measures, whichever axis is more
+  // constraining, with a fixed margin so the page never touches the
+  // viewport edges exactly.
+  const fitToScreen = () => {
+    const vp = canvasViewportRef.current;
+    if (!vp) return;
+    const margin = 48;
+    const availW = Math.max(50, vp.clientWidth - margin * 2);
+    const availH = Math.max(50, vp.clientHeight - margin * 2);
+    const fit = Math.min(availW / template.page.width, availH / template.page.height);
+    setZoom(fit * 100);
+  };
+  const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200];
 
   const hasSelection = selection.ids.length > 0;
   const canGroup = selection.ids.length >= 2;
@@ -55,6 +71,24 @@ export default function Toolbar({ onPreview }) {
       </button>
 
       <div className="toolbar__spacer" />
+
+      {/* Prompt 22 item 1: zoom is a view preference (EditorContext's own
+          `zoom` state, never `template`) — +/- step by 10, clamped to
+          [25,200] by setZoom itself; the dropdown offers the common
+          preset stops plus whatever odd value trackpad/wheel zoom (or
+          Fit) last landed on, so the display is never out of sync with
+          the actual live zoom level. */}
+      <div className="zoom-controls">
+        <button className="tbtn" onClick={() => setZoom(zoom - 10)} aria-label="Zoom out">−</button>
+        <select className="zoom-select" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+          {!ZOOM_PRESETS.includes(zoom) && <option value={zoom}>{zoom}%</option>}
+          {ZOOM_PRESETS.map((z) => (
+            <option key={z} value={z}>{z}%</option>
+          ))}
+        </select>
+        <button className="tbtn" onClick={() => setZoom(zoom + 10)} aria-label="Zoom in">+</button>
+        <button className="tbtn" onClick={fitToScreen}>Fit</button>
+      </div>
 
       <button className="tbtn" onClick={onPreview}>
         Preview <span className="tbtn__key">P</span>

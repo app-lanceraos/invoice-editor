@@ -113,6 +113,26 @@ body {
   padding: 1px 5px;
 }
 
+/* Prompt 22 item 1 — zoom controls: the -/+ buttons reuse .tbtn as-is;
+   just the percentage dropdown needs its own (compact) sizing. */
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zoom-select {
+  width: 68px;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  padding: 6px 6px;
+  text-align: center;
+}
+
 /* ---------- Main layout ---------- */
 
 .workspace {
@@ -222,14 +242,33 @@ body {
   padding: 40px 20px;
 }
 
-.page-frame {
+/* Prompt 22 — zoom: `.page-zoom-wrapper` is the actual flex child, sized
+   in inline style to the page's TRUE dimensions times the current zoom
+   factor, so `.canvas-scroll`'s overflow/scroll math sees the real
+   on-screen (zoomed) size. `.page-frame` inside it keeps its natural,
+   UNSCALED 794x1123 layout box (every item inside it stores/reads plain
+   page-unit coordinates, same as before zoom existed) and is scaled
+   purely visually via CSS `transform` (set inline, alongside the zoom
+   factor) — `position: absolute` pulls it out of normal flow so its own
+   unscaled box never affects the wrapper's (already explicitly sized)
+   layout; it still establishes the same containing block its own
+   absolutely-positioned children (`.page-edge-glow` etc.) already relied
+   on `position: relative` for. */
+.page-zoom-wrapper {
   position: relative;
+  flex-shrink: 0;
+}
+
+.page-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 794px;
   height: 1123px;
+  transform-origin: top left;
   background: var(--page-bg);
   color: var(--page-text);
   box-shadow: var(--shadow-panel);
-  flex-shrink: 0;
 }
 
 /* ---------- Canvas layer (unified shapes + content items) ---------- */

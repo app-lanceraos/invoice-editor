@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useReducer, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useReducer, useRef, useState } from 'react';
 import { historyReducer, initialHistoryState } from './historyReducer';
 import { ELEMENT_TYPES, createContentItem } from '../data/elementCatalog';
 import { createShape, detectRail } from '../data/shapeCatalog';
@@ -58,6 +58,22 @@ export function EditorProvider({ children }) {
   // `selection` holds at render time (right-clicking updates selection
   // first — see CanvasItem's onContextMenu — so the two never disagree).
   const [contextMenu, setContextMenu] = useState(null);
+  // Prompt 22: canvas zoom is a VIEW preference, not saved document data —
+  // deliberately its own plain useState, never touching `template`/
+  // history, so zooming in and out is never an undo-able action and never
+  // changes a single stored x/y/width/height. A percentage, clamped to a
+  // sensible [25,200] range; every mouse-driven gesture divides its own
+  // raw screen-pixel delta by `zoom/100` before touching page-unit data
+  // (see CanvasItem.jsx/GroupSelectionOverlay.jsx/CanvasLayer.jsx).
+  const [zoom, setZoomRaw] = useState(100);
+  const setZoom = useCallback((value) => {
+    setZoomRaw(Math.min(200, Math.max(25, Math.round(value))));
+  }, []);
+  // The live `.canvas-scroll` DOM node, shared via ref rather than state
+  // (its dimensions/scroll position are read imperatively, on demand, by
+  // EditorCanvas's own wheel-zoom handler and by Toolbar's "Fit to
+  // screen" — neither needs to re-render when the OTHER touches it).
+  const canvasViewportRef = useRef(null);
 
   const template = history.present;
 
@@ -308,6 +324,9 @@ export function EditorProvider({ children }) {
     setPushPreview,
     contextMenu,
     setContextMenu,
+    zoom,
+    setZoom,
+    canvasViewportRef,
     toggleContentItem,
     updateItem,
     updateItems,
