@@ -117,14 +117,31 @@ export default function CanvasLayer({ readOnly = false }) {
       {!readOnly && guides?.labels.map((l, i) => (
         <div key={`gl-${i}`} className="align-guide-label" style={{ left: l.x, top: l.y }}>{l.text}</div>
       ))}
-      {/* Equal-spacing markers (Prompt 19 item 2, the flagship feature):
-          one pill per gap that's become exactly equal, reusing the same
-          label styling as the plain distance readout above — a gap
-          showing "24px" here means the SAME value shows in every other
-          equalized gap in that line, at the instant they actually match. */}
+      {/* Equal-spacing markers (Prompt 19 item 2, the flagship feature;
+          per-segment rendering fixed in Prompt 20 item 1): ONE short
+          segment + pill per individual gap that's part of the matched
+          rhythm — bounded to that single gap's own `from`/`to` span, the
+          same way an ordinary alignment line is now bounded (never one
+          line stretching across the whole line of items — ANY number of
+          equalized gaps show as that many independent small indicators,
+          matching Canva's actual look, not a single spanning line). A
+          gap reading e.g. "24px" here means every OTHER marker sharing
+          that same rhythm reads the same value, at the instant they
+          actually match. */}
       {!readOnly && guides?.spacing.map((s, i) => (
         <div
-          key={`gs-${i}`}
+          key={`gs-line-${i}`}
+          className={`align-guide ${s.axis === 'x' ? 'align-guide--horizontal' : 'align-guide--vertical'}`}
+          style={
+            s.axis === 'x'
+              ? { top: s.cross, left: s.from, width: s.to - s.from }
+              : { left: s.cross, top: s.from, height: s.to - s.from }
+          }
+        />
+      ))}
+      {!readOnly && guides?.spacing.map((s, i) => (
+        <div
+          key={`gs-label-${i}`}
           className="align-guide-label"
           style={{
             left: s.axis === 'x' ? (s.from + s.to) / 2 : s.cross,

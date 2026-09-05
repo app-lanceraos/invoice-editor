@@ -570,6 +570,12 @@ export default function CanvasItem({ item, readOnly = false }) {
 
   const [live, setLive] = useState(null); // { x, y, width, height, rotation } while dragging
   const [rotationSnapped, setRotationSnapped] = useState(false);
+  // Prompt 20 item 2: live pill labels while dragging a table column
+  // divider — { xPct, yPct, text }[], positioned as PERCENTAGES of this
+  // item's own box (like the dividers themselves) so they inherit the
+  // item's rotation transform for free instead of needing their own
+  // rotation math. null whenever no divider drag is in progress.
+  const [columnDragLabels, setColumnDragLabels] = useState(null);
   const draggedRef = useRef(false); // did the current mousedown gesture actually move?
 
   // Hover preview (Prompt 15) — local, transient, cleared the instant the
@@ -1240,12 +1246,40 @@ export default function CanvasItem({ item, readOnly = false }) {
       widths[colIndex + 1] = b;
       finalWidths = widths;
       setLive({ columnWidths: widths });
+
+      // Prompt 20 item 2: live pill labels — the two changing columns'
+      // actual pixel widths, and the pixel distance from the dragged
+      // divider to every OTHER divider in this same table, so a user can
+      // match widths precisely without guessing at the raw percentages.
+      const cumulativePct = [];
+      let acc = 0;
+      widths.forEach((w) => {
+        acc += w;
+        cumulativePct.push(acc);
+      });
+      const draggedDividerPct = cumulativePct[colIndex];
+      const leftStartPct = colIndex === 0 ? 0 : cumulativePct[colIndex - 1];
+      const labels = [
+        { xPct: (leftStartPct + draggedDividerPct) / 2, yPct: 42, text: `${Math.round((a / 100) * item.width)}px` },
+        {
+          xPct: (draggedDividerPct + cumulativePct[colIndex + 1]) / 2,
+          yPct: 42,
+          text: `${Math.round((b / 100) * item.width)}px`,
+        },
+      ];
+      cumulativePct.slice(0, -1).forEach((pct, i) => {
+        if (i === colIndex) return; // the dragged divider itself — nothing to measure against it
+        const distancePx = (Math.abs(pct - draggedDividerPct) / 100) * item.width;
+        labels.push({ xPct: (pct + draggedDividerPct) / 2, yPct: 68, text: `${Math.round(distancePx)}px` });
+      });
+      setColumnDragLabels(labels);
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       if (finalWidths) updateItem(item.id, { columnWidths: finalWidths });
       setLive(null);
+      setColumnDragLabels(null);
       restoreSelection();
     };
     window.addEventListener('mousemove', onMove);
@@ -1393,6 +1427,18 @@ export default function CanvasItem({ item, readOnly = false }) {
           );
         });
       })()}
+
+      {/* Prompt 20 item 2: live distance pills while dragging a column
+          divider — reuses the exact same `.align-guide-label` pill
+          styling the item-to-item spacing guides use (Prompt 6/19), just
+          positioned as percentages of THIS item's own box (like the
+          dividers themselves) rather than through the shared canvas-wide
+          guides channel, so they inherit the item's rotation for free. */}
+      {columnDragLabels && columnDragLabels.map((l, i) => (
+        <div key={`cdl-${i}`} className="align-guide-label" style={{ left: `${l.xPct}%`, top: `${l.yPct}%` }}>
+          {l.text}
+        </div>
+      ))}
 
       {showIndividualHandles && (() => {
         // "left/right/top/bottom" only stays well-defined for an

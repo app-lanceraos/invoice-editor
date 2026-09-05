@@ -253,25 +253,41 @@ export function nearestGap(pos, size, neighbors) {
   return { before, after };
 }
 
-// Prompt 19 item 2 — Canva-style EQUAL-SPACING detection, the flagship
-// feature of this pass: given the dragged box's CANDIDATE position/size
-// on one axis and the other items sharing its cross-axis band (already
-// "in the same row/column" by the same overlap test nearestGap's caller
-// uses), insert the dragged box into that line's sorted sequence and
-// look for the two patterns real design tools support:
-//   - sandwiched: the dragged item sits BETWEEN two neighbors — solve
-//     for the exact position that makes both surrounding gaps equal
-//     (dragging something to dead-center between two others).
-//   - continuing: the dragged item sits OUTSIDE an existing gap — match
-//     its own single adjacent gap against the nearest EXISTING gap size
-//     elsewhere in the line (continuing an already-established rhythm of
-//     spacing, e.g. a 4th item joining 3 evenly-spaced ones).
+// Prompt 19/20 item 2 — Canva-style EQUAL-SPACING detection, the
+// flagship feature of this pass: given the dragged box's CANDIDATE
+// position/size on one axis and the other items sharing its cross-axis
+// band (already "in the same row/column" by the same overlap test
+// nearestGap's caller uses), insert the dragged box into that line's
+// sorted sequence and look for an established rhythm to continue —
+// generalized (Prompt 20) to ANY number of in-line items, not just
+// exactly 3:
+//   - established rhythm: two or more STATIONARY (non-dragged) gaps
+//     elsewhere in the line already mutually agree (within `tolerance`)
+//     on a shared spacing value — the dominant, largest such cluster is
+//     the "rhythm" a longer line of already-evenly-spaced items has
+//     settled on. Whichever of the dragged item's own adjacent gap(s) is
+//     closest to that rhythm gets solved to match it EXACTLY, regardless
+//     of whether the dragged item ends up sandwiched between two
+//     neighbors or sitting outside an existing pair.
+//   - bare 3-item fallback: with fewer than 2 mutually-consistent
+//     stationary gaps to establish a rhythm from (the ORIGINAL 3-item
+//     scope: one single stationary gap — "continuing" it verbatim — or,
+//     sandwiched between exactly two items with nothing else in the
+//     line — solve the dragged item's own two gaps to match EACH OTHER,
+//     the classic "center it between these two" case). Unchanged from
+//     Prompt 19 — this is what keeps the original 3-item behavior a
+//     strict subset of the general case, not a regression.
 // `rowItems` are {pos, size} on this axis, EXCLUDING the dragged item.
 // Returns null when nothing is within `tolerance` of matching; otherwise
 // `{ targetPos, gaps }` — `targetPos` is the exact position (this axis
-// only) that achieves equality, and `gaps` is every gap that ends up
-// equal once snapped there, each `{ start, end, value }` for drawing a
-// marker + label at.
+// only) that achieves equality, and `gaps` is every gap that's part of
+// the matched rhythm — the established cluster's own gaps (their real,
+// individual values) plus the newly-solved dragged gap (exactly
+// `referenceValue`), each `{ start, end, value }` for a separate small
+// marker in that ONE gap (Prompt 20 item 1), never one line spanning the
+// whole group. A sandwiched item's OTHER side is included too, but only
+// when it independently lands close enough to the same rhythm — never
+// force-labeled "equal" when it plainly isn't.
 export function detectEqualSpacing(draggedPos, draggedSize, rowItems, tolerance) {
   if (rowItems.length < 2) return null;
   const combined = rowItems
@@ -279,21 +295,75 @@ export function detectEqualSpacing(draggedPos, draggedSize, rowItems, tolerance)
     .concat([{ pos: draggedPos, size: draggedSize, dragged: true }])
     .sort((a, b) => a.pos - b.pos);
 
+  const gapAt = (seq, i) => ({
+    value: seq[i + 1].pos - (seq[i].pos + seq[i].size),
+    start: seq[i].pos + seq[i].size,
+    end: seq[i + 1].pos,
+    leftDragged: seq[i].dragged,
+    rightDragged: seq[i + 1].dragged,
+  });
   const gaps = [];
-  for (let i = 0; i < combined.length - 1; i++) {
-    gaps.push({
-      value: combined[i + 1].pos - (combined[i].pos + combined[i].size),
-      start: combined[i].pos + combined[i].size,
-      end: combined[i + 1].pos,
-      leftDragged: combined[i].dragged,
-      rightDragged: combined[i + 1].dragged,
-    });
-  }
+  for (let i = 0; i < combined.length - 1; i++) gaps.push(gapAt(combined, i));
   const draggedGaps = gaps.filter((g) => g.leftDragged || g.rightDragged);
   const stationaryGaps = gaps.filter((g) => !g.leftDragged && !g.rightDragged);
   if (draggedGaps.length === 0) return null;
 
-  // Sandwiched: solve the two dragged-adjacent gaps for exact equality.
+  // The dominant established rhythm: the largest cluster of stationary
+  // gaps that are all mutually within `tolerance` of one another; its
+  // average is the value to continue. A cluster of exactly one (only a
+  // single stationary gap exists) still counts — that's the original
+  // 3-item "continuing" case, just expressed as a 1-element cluster.
+  let referenceValue = null;
+  let referenceCluster = [];
+  if (stationaryGaps.length) {
+    let bestCluster = [];
+    stationaryGaps.forEach((g) => {
+      const cluster = stationaryGaps.filter((h) => Math.abs(h.value - g.value) <= tolerance);
+      if (cluster.length > bestCluster.length) bestCluster = cluster;
+    });
+    referenceCluster = bestCluster;
+    referenceValue = bestCluster.reduce((sum, g) => sum + g.value, 0) / bestCluster.length;
+  }
+
+  if (referenceValue !== null) {
+    let best = null;
+    let bestDiff = tolerance;
+    draggedGaps.forEach((dg) => {
+      const diff = Math.abs(dg.value - referenceValue);
+      if (diff <= bestDiff) {
+        bestDiff = diff;
+        best = dg;
+      }
+    });
+    if (best) {
+      const targetPos = best.rightDragged ? best.start + referenceValue : best.end - draggedSize - referenceValue;
+      const bestSpan = best.rightDragged ? { start: best.start, end: targetPos } : { start: targetPos + draggedSize, end: best.end };
+      // Report the ORIGINAL cluster gaps (each keeping its own real
+      // value — they're already within `tolerance` of each other, but
+      // not necessarily bit-identical) plus the newly-solved dragged gap
+      // (forced to exactly `referenceValue`) — always >= 2 markers,
+      // never force-labels a gap "equal" that isn't: a sandwiched item's
+      // OTHER side is only added below when it independently qualifies.
+      const resultGaps = [
+        ...referenceCluster.map((g) => ({ start: g.start, end: g.end, value: g.value })),
+        { ...bestSpan, value: referenceValue },
+      ];
+      const other = draggedGaps.find((g) => g !== best);
+      if (other) {
+        const otherSpan = other.rightDragged
+          ? { start: other.start, end: targetPos }
+          : { start: targetPos + draggedSize, end: other.end };
+        const otherValue = otherSpan.end - otherSpan.start;
+        if (Math.abs(otherValue - referenceValue) <= tolerance) {
+          resultGaps.push({ ...otherSpan, value: otherValue });
+        }
+      }
+      return { targetPos, gaps: resultGaps };
+    }
+  }
+
+  // Bare 3-item fallback (no established rhythm to draw from): solve the
+  // dragged item's own two gaps to match each other exactly.
   if (draggedGaps.length === 2) {
     const [gL, gR] = draggedGaps;
     if (Math.abs(gL.value - gR.value) <= tolerance) {
@@ -304,36 +374,6 @@ export function detectEqualSpacing(draggedPos, draggedSize, rowItems, tolerance)
         gaps: [
           { start: gL.start, end: targetPos, value: targetValue },
           { start: targetPos + draggedSize, end: gR.end, value: targetValue },
-        ],
-      };
-    }
-  }
-
-  // Continuing: match a single dragged-adjacent gap against the nearest
-  // stationary gap elsewhere in the line.
-  if (stationaryGaps.length) {
-    let best = null;
-    let bestDiff = tolerance;
-    draggedGaps.forEach((dg) => {
-      stationaryGaps.forEach((sg) => {
-        const diff = Math.abs(dg.value - sg.value);
-        if (diff <= bestDiff) {
-          bestDiff = diff;
-          best = { dg, sg };
-        }
-      });
-    });
-    if (best) {
-      const { dg, sg } = best;
-      const targetPos = dg.rightDragged ? dg.start + sg.value : dg.end - draggedSize - sg.value;
-      const draggedGapSpan = dg.rightDragged
-        ? { start: dg.start, end: targetPos }
-        : { start: targetPos + draggedSize, end: dg.end };
-      return {
-        targetPos,
-        gaps: [
-          { ...draggedGapSpan, value: sg.value },
-          { start: sg.start, end: sg.end, value: sg.value },
         ],
       };
     }
