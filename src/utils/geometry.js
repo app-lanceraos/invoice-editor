@@ -129,126 +129,216 @@ export function resizeRotatedBox(start, handle, dx, dy, minSize = 16) {
   };
 }
 
-// Simple v1 edge-alignment snap: compare a dragged item's left/center/right
-// (or top/center/bottom) against a flat list of candidate edges — other
-// items' edges, page edges, whatever the caller supplies — and if the
-// closest pair is within `tolerance`, return the small delta that would
-// align them exactly.
-export function snapAxis(pos, size, otherEdges, tolerance = 4) {
-  const points = [pos, pos + size / 2, pos + size];
-  let best = 0;
-  let bestDist = tolerance;
-  points.forEach((p) => {
-    otherEdges.forEach((oe) => {
-      const d = oe - p;
-      if (Math.abs(d) <= bestDist) {
-        bestDist = Math.abs(d);
-        best = d;
-      }
-    });
+// ---------- Prompt 19: professional alignment guides ----------
+//
+// Rebuilt as a set of small composable pieces rather than one monolithic
+// "compute everything" function — CanvasItem orchestrates which of these
+// apply to a given gesture (single-item move gets the full set including
+// equal-spacing; resize and group-move get page-center + sticky point-
+// align only; see CanvasItem.jsx for exactly why).
+
+// Point-alignment candidates for ONE axis ('x' or 'y'): every OTHER
+// item's own left/center/right (or top/center/bottom), each carrying its
+// own cross-axis span so a guide line that matches it can be drawn only
+// between the two elements actually involved (Prompt 19 visual-polish —
+// a guide reads as "these two things line up," not page-wide decoration)
+// — plus the page's own center (Prompt 19 item 1), which — being
+// page-wide by nature, not item-to-item — is flagged `isPage` so its
+// guide line spans the FULL page instead.
+export function alignmentCandidates(axis, others, page) {
+  const candidates = others.flatMap((o) => {
+    const pos = axis === 'x' ? o.x : o.y;
+    const size = axis === 'x' ? o.width : o.height;
+    const crossMin = axis === 'x' ? o.y : o.x;
+    const crossMax = axis === 'x' ? o.y + o.height : o.x + o.width;
+    return [pos, pos + size / 2, pos + size].map((value) => ({ value, crossMin, crossMax, isPage: false, isBoundary: false }));
   });
-  return best;
+  const pageCrossSize = axis === 'x' ? page.height : page.width;
+  const pageValue = (axis === 'x' ? page.width : page.height) / 2;
+  candidates.push({ value: pageValue, crossMin: 0, crossMax: pageCrossSize, isPage: true, isBoundary: false });
+  return candidates;
 }
 
-// How close (px) a candidate has to be for a full-span alignment guide line
-// to appear — same tolerance snapAxis already uses for the actual snap, so
-// a guide only ever shows for an alignment that's actually engaged.
-const GUIDE_TOLERANCE = 4;
-// How far away (px) a neighboring item can be for its gap to still be worth
-// showing as a live distance label — beyond this it's not "nearby" in any
-// visually useful sense.
-const DISTANCE_LABEL_RANGE = 160;
+// The page/footer boundary a move already flushes against (Prompt 5) —
+// still a real snap TARGET (landing flush against the page edge should
+// feel just as magnetic as aligning to a neighbor), but it already has
+// its own dedicated indicator (the edge-glow — see clampToPage) so it's
+// flagged `isBoundary` to suppress a REDUNDANT pink guide line for the
+// exact same edge (acceptance criteria: the two systems must stay
+// separate, never merged/confused).
+export function boundaryCandidates(bounds, axis) {
+  const values = axis === 'x' ? [bounds.minX, bounds.maxX] : [bounds.minY, bounds.maxY];
+  return values.map((value) => ({ value, crossMin: -Infinity, crossMax: Infinity, isPage: false, isBoundary: true }));
+}
 
-// The single CLOSEST alignment on this axis — among every one of the
-// box's own left/center/right (or top/center/bottom) points that's within
-// `tolerance` of another item's, keep only the nearest match by actual
-// pixel distance (Prompt 14: rendering every match within tolerance, like
-// this used to, let a dense cluster show up to 8 simultaneous guide
-// elements at once — one authoritative line per axis reads as information
-// instead of clutter).
-function nearestAlignment(pos, size, otherPoints, tolerance = GUIDE_TOLERANCE) {
+// Point-alignment snap, richer than a plain delta: which CANDIDATE
+// matched (needed to tell a real "no match" apart from "matched with
+// exactly zero delta," which sticky hysteresis below needs to
+// distinguish, and to carry the candidate's own cross-span/isPage/
+// isBoundary flags through to the guide-rendering step).
+export function findNearestSnap(pos, size, candidates, tolerance) {
   const points = [pos, pos + size / 2, pos + size];
   let best = null;
   let bestDist = tolerance;
   points.forEach((p) => {
-    otherPoints.forEach((op) => {
-      const d = Math.abs(op - p);
-      if (d <= bestDist) {
-        bestDist = d;
-        best = op;
+    candidates.forEach((c) => {
+      const d = c.value - p;
+      if (Math.abs(d) <= bestDist) {
+        bestDist = Math.abs(d);
+        best = { delta: d, candidate: c };
       }
     });
   });
   return best;
 }
 
-// Smart guides for a box mid-drag/resize against every OTHER item (shapes
-// included — aligning text to a decorative rail's edge is a real case).
-// Two independent things, both purely visual/informational, and both
-// capped to at most ONE per axis (Prompt 14) — a dense cluster used to be
-// able to show up to 8 simultaneous elements (multiple lines + up to 4
-// gap labels), which read as clutter rather than information:
-//   - `vertical`/`horizontal`: at most one page-spanning line per axis —
-//     whichever of this box's own edges/center is CLOSEST to another
-//     item's, not every alignment within tolerance — separate from the
-//     page-boundary edge highlight, which is its own system (see
-//     clampToPage/clampResizeToPage).
-//   - `labels`: at most one live pixel-gap readout per axis — the nearer
-//     of the two candidate neighbors (e.g. left vs right) on each axis,
-//     shown independent of whether a snap is engaged, and only within
-//     DISTANCE_LABEL_RANGE ("close enough to be worth mentioning").
-export function computeGuides(box, others) {
-  const otherXPoints = others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]);
-  const otherYPoints = others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]);
-  const nearestV = nearestAlignment(box.x, box.width, otherXPoints);
-  const nearestH = nearestAlignment(box.y, box.height, otherYPoints);
-  const vertical = nearestV === null ? [] : [nearestV];
-  const horizontal = nearestH === null ? [] : [nearestH];
+// Prompt 19 item 3 — sticky snap: the tolerance to ENGAGE a snap is
+// tighter than the tolerance to stay snapped once already there, so
+// crossing the engage threshold once doesn't immediately un-snap on the
+// very next pixel of mouse movement (this is what makes Canva/Figma-style
+// snapping feel deliberate rather than twitchy). `wasSnapped` is this
+// same axis's own engagement state from the PREVIOUS frame of the same
+// gesture — inherently per-gesture, per-axis state a pure function can't
+// hold itself, so the caller (CanvasItem) tracks it across mousemove
+// frames and passes it back in each call.
+export const SNAP_ENGAGE_TOLERANCE = 4;
+export const SNAP_RELEASE_TOLERANCE = 10;
+export function findStickySnap(pos, size, candidates, wasSnapped) {
+  const tolerance = wasSnapped ? SNAP_RELEASE_TOLERANCE : SNAP_ENGAGE_TOLERANCE;
+  return findNearestSnap(pos, size, candidates, tolerance);
+}
 
-  const rowNeighbors = others.filter((o) => o.y < box.y + box.height && o.y + o.height > box.y);
-  const colNeighbors = others.filter((o) => o.x < box.x + box.width && o.x + o.width > box.x);
+// Backward-compatible plain-delta snap (used where the richer match
+// object isn't needed) — kept as a thin wrapper over findNearestSnap so
+// the two never drift apart.
+export function snapAxis(pos, size, otherEdges, tolerance = SNAP_ENGAGE_TOLERANCE) {
+  const found = findNearestSnap(pos, size, otherEdges.map((value) => ({ value })), tolerance);
+  return found ? found.delta : 0;
+}
 
-  let leftGap = null;
-  let rightGap = null;
-  rowNeighbors.forEach((o) => {
-    if (o.x + o.width <= box.x) {
-      const gap = box.x - (o.x + o.width);
-      if (gap <= DISTANCE_LABEL_RANGE && (!leftGap || gap < leftGap)) leftGap = gap;
+// The cross-axis span a guide LINE should actually be drawn across
+// (Prompt 19 visual polish): the full page for a page-center match,
+// otherwise only from the nearer of [dragged box, matched item] to the
+// farther of the two — a line that reads as "THESE two things align,"
+// never page-wide decoration for an ordinary item-to-item match.
+export function guideSpan(boxCrossMin, boxCrossMax, candidate, pageCrossSize) {
+  if (candidate.isPage) return [0, pageCrossSize];
+  return [Math.min(boxCrossMin, candidate.crossMin), Math.max(boxCrossMax, candidate.crossMax)];
+}
+
+// How far away (px) a neighboring item can be for its gap to still be
+// worth showing as a live distance label — beyond this it's not "nearby"
+// in any visually useful sense. Unchanged from Prompt 6/14.
+const DISTANCE_LABEL_RANGE = 160;
+
+// The plain "nearest gap on either side" reading Prompt 6/14 already
+// showed — kept as the fallback for whichever axis ISN'T currently doing
+// equal-spacing detection (see detectEqualSpacing below), so a lone
+// neighbor still gets a live distance readout the way it always has.
+// `neighbors` are {pos, size} on THIS axis, already filtered by the
+// caller to whichever items share the cross-axis band.
+export function nearestGap(pos, size, neighbors) {
+  let before = null;
+  let after = null;
+  neighbors.forEach((n) => {
+    if (n.pos + n.size <= pos) {
+      const gap = pos - (n.pos + n.size);
+      if (gap <= DISTANCE_LABEL_RANGE && (before === null || gap < before)) before = gap;
     }
-    if (o.x >= box.x + box.width) {
-      const gap = o.x - (box.x + box.width);
-      if (gap <= DISTANCE_LABEL_RANGE && (!rightGap || gap < rightGap)) rightGap = gap;
+    if (n.pos >= pos + size) {
+      const gap = n.pos - (pos + size);
+      if (gap <= DISTANCE_LABEL_RANGE && (after === null || gap < after)) after = gap;
     }
   });
+  return { before, after };
+}
 
-  let topGap = null;
-  let bottomGap = null;
-  colNeighbors.forEach((o) => {
-    if (o.y + o.height <= box.y) {
-      const gap = box.y - (o.y + o.height);
-      if (gap <= DISTANCE_LABEL_RANGE && (!topGap || gap < topGap)) topGap = gap;
-    }
-    if (o.y >= box.y + box.height) {
-      const gap = o.y - (box.y + box.height);
-      if (gap <= DISTANCE_LABEL_RANGE && (!bottomGap || gap < bottomGap)) bottomGap = gap;
-    }
-  });
+// Prompt 19 item 2 — Canva-style EQUAL-SPACING detection, the flagship
+// feature of this pass: given the dragged box's CANDIDATE position/size
+// on one axis and the other items sharing its cross-axis band (already
+// "in the same row/column" by the same overlap test nearestGap's caller
+// uses), insert the dragged box into that line's sorted sequence and
+// look for the two patterns real design tools support:
+//   - sandwiched: the dragged item sits BETWEEN two neighbors — solve
+//     for the exact position that makes both surrounding gaps equal
+//     (dragging something to dead-center between two others).
+//   - continuing: the dragged item sits OUTSIDE an existing gap — match
+//     its own single adjacent gap against the nearest EXISTING gap size
+//     elsewhere in the line (continuing an already-established rhythm of
+//     spacing, e.g. a 4th item joining 3 evenly-spaced ones).
+// `rowItems` are {pos, size} on this axis, EXCLUDING the dragged item.
+// Returns null when nothing is within `tolerance` of matching; otherwise
+// `{ targetPos, gaps }` — `targetPos` is the exact position (this axis
+// only) that achieves equality, and `gaps` is every gap that ends up
+// equal once snapped there, each `{ start, end, value }` for drawing a
+// marker + label at.
+export function detectEqualSpacing(draggedPos, draggedSize, rowItems, tolerance) {
+  if (rowItems.length < 2) return null;
+  const combined = rowItems
+    .map((it) => ({ pos: it.pos, size: it.size, dragged: false }))
+    .concat([{ pos: draggedPos, size: draggedSize, dragged: true }])
+    .sort((a, b) => a.pos - b.pos);
 
-  // At most one label per axis — whichever side (left/right, top/bottom)
-  // is actually nearer, not both at once.
-  const labels = [];
-  if (leftGap !== null && (rightGap === null || leftGap <= rightGap)) {
-    labels.push({ x: box.x - leftGap / 2, y: box.y + box.height / 2, text: `${Math.round(leftGap)}px` });
-  } else if (rightGap !== null) {
-    labels.push({ x: box.x + box.width + rightGap / 2, y: box.y + box.height / 2, text: `${Math.round(rightGap)}px` });
+  const gaps = [];
+  for (let i = 0; i < combined.length - 1; i++) {
+    gaps.push({
+      value: combined[i + 1].pos - (combined[i].pos + combined[i].size),
+      start: combined[i].pos + combined[i].size,
+      end: combined[i + 1].pos,
+      leftDragged: combined[i].dragged,
+      rightDragged: combined[i + 1].dragged,
+    });
   }
-  if (topGap !== null && (bottomGap === null || topGap <= bottomGap)) {
-    labels.push({ x: box.x + box.width / 2, y: box.y - topGap / 2, text: `${Math.round(topGap)}px` });
-  } else if (bottomGap !== null) {
-    labels.push({ x: box.x + box.width / 2, y: box.y + box.height + bottomGap / 2, text: `${Math.round(bottomGap)}px` });
+  const draggedGaps = gaps.filter((g) => g.leftDragged || g.rightDragged);
+  const stationaryGaps = gaps.filter((g) => !g.leftDragged && !g.rightDragged);
+  if (draggedGaps.length === 0) return null;
+
+  // Sandwiched: solve the two dragged-adjacent gaps for exact equality.
+  if (draggedGaps.length === 2) {
+    const [gL, gR] = draggedGaps;
+    if (Math.abs(gL.value - gR.value) <= tolerance) {
+      const targetPos = (gL.start + gR.end - draggedSize) / 2;
+      const targetValue = (gR.end - gL.start - draggedSize) / 2;
+      return {
+        targetPos,
+        gaps: [
+          { start: gL.start, end: targetPos, value: targetValue },
+          { start: targetPos + draggedSize, end: gR.end, value: targetValue },
+        ],
+      };
+    }
   }
 
-  return { vertical, horizontal, labels };
+  // Continuing: match a single dragged-adjacent gap against the nearest
+  // stationary gap elsewhere in the line.
+  if (stationaryGaps.length) {
+    let best = null;
+    let bestDiff = tolerance;
+    draggedGaps.forEach((dg) => {
+      stationaryGaps.forEach((sg) => {
+        const diff = Math.abs(dg.value - sg.value);
+        if (diff <= bestDiff) {
+          bestDiff = diff;
+          best = { dg, sg };
+        }
+      });
+    });
+    if (best) {
+      const { dg, sg } = best;
+      const targetPos = dg.rightDragged ? dg.start + sg.value : dg.end - draggedSize - sg.value;
+      const draggedGapSpan = dg.rightDragged
+        ? { start: dg.start, end: targetPos }
+        : { start: targetPos + draggedSize, end: dg.end };
+      return {
+        targetPos,
+        gaps: [
+          { ...draggedGapSpan, value: sg.value },
+          { start: sg.start, end: sg.end, value: sg.value },
+        ],
+      };
+    }
+  }
+  return null;
 }
 
 // ---------- Content-vs-content collision (Prompt 12) ----------

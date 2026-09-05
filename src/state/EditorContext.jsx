@@ -19,9 +19,11 @@ export function EditorProvider({ children }) {
   // is currently touching, for the edge-contact highlight. null when idle.
   const [edgeHighlight, setEdgeHighlight] = useState(null);
   // Transient, not history: smart alignment guides + live distance labels
-  // for an in-progress drag/resize (see computeGuides) — { vertical,
-  // horizontal, labels } | null. Separate from edgeHighlight since guides
-  // are item-to-item, not page-boundary.
+  // + equal-spacing markers for an in-progress drag/resize (Prompt 6/14,
+  // rebuilt Prompt 19 — see geometry.js's resolveAxisSnap/
+  // detectEqualSpacing, driven by CanvasItem) — { vertical, horizontal,
+  // labels, spacing } | null. Separate from edgeHighlight since guides
+  // are item-to-item/page-center, not page-boundary.
   const [guides, setGuides] = useState(null);
   // Transient, not history: a text-bearing item's actual rendered size,
   // when it's larger than its own stored width/height (Prompt 14) — a

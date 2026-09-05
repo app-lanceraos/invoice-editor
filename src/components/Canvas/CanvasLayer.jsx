@@ -97,20 +97,42 @@ export default function CanvasLayer({ readOnly = false }) {
         />
       )}
 
-      {/* Smart guides: transient, only while a drag/resize gesture is
-          active (see CanvasItem's computeGuides use) — full-span alignment
-          lines plus live distance labels to nearby items. Explicitly gated
-          on readOnly too, not just left to "guides is null outside a
-          drag" — Preview must never show them even if a gesture somehow
-          left stale guide state behind in the shared context. */}
-      {!readOnly && guides?.vertical.map((x) => (
-        <div key={`gv-${x}`} className="align-guide align-guide--vertical" style={{ left: x }} />
+      {/* Smart guides (Prompt 6/14, rebuilt Prompt 19): transient, only
+          while a drag/resize gesture is active (see CanvasItem's
+          resolveAxisSnap use) — alignment lines, equal-spacing markers,
+          and live distance labels. Explicitly gated on readOnly too, not
+          just left to "guides is null outside a drag" — Preview must
+          never show them even if a gesture somehow left stale guide
+          state behind in the shared context.
+          Line spans are bounded (`from`/`to`) rather than page-edge-to-
+          edge — full page width/height only for a genuine page-center
+          match (see geometry.js's guideSpan) — so a guide reads as "these
+          two things align," not decoration stretched across empty page. */}
+      {!readOnly && guides?.vertical.map((g, i) => (
+        <div key={`gv-${i}`} className="align-guide align-guide--vertical" style={{ left: g.value, top: g.from, height: g.to - g.from }} />
       ))}
-      {!readOnly && guides?.horizontal.map((y) => (
-        <div key={`gh-${y}`} className="align-guide align-guide--horizontal" style={{ top: y }} />
+      {!readOnly && guides?.horizontal.map((g, i) => (
+        <div key={`gh-${i}`} className="align-guide align-guide--horizontal" style={{ top: g.value, left: g.from, width: g.to - g.from }} />
       ))}
       {!readOnly && guides?.labels.map((l, i) => (
-        <div key={i} className="align-guide-label" style={{ left: l.x, top: l.y }}>{l.text}</div>
+        <div key={`gl-${i}`} className="align-guide-label" style={{ left: l.x, top: l.y }}>{l.text}</div>
+      ))}
+      {/* Equal-spacing markers (Prompt 19 item 2, the flagship feature):
+          one pill per gap that's become exactly equal, reusing the same
+          label styling as the plain distance readout above — a gap
+          showing "24px" here means the SAME value shows in every other
+          equalized gap in that line, at the instant they actually match. */}
+      {!readOnly && guides?.spacing.map((s, i) => (
+        <div
+          key={`gs-${i}`}
+          className="align-guide-label"
+          style={{
+            left: s.axis === 'x' ? (s.from + s.to) / 2 : s.cross,
+            top: s.axis === 'x' ? s.cross : (s.from + s.to) / 2,
+          }}
+        >
+          {s.text}
+        </div>
       ))}
     </div>
   );

@@ -510,10 +510,17 @@ body {
 .page-edge-glow--left { top: 0; bottom: 0; left: 0; width: 3px; }
 .page-edge-glow--right { top: 0; bottom: 0; right: 0; width: 3px; }
 
-/* Smart alignment guides (item-to-item, not page-boundary — see
-   .page-edge-glow above for that): a distinct accent color so the two
-   systems stay visually separable when both show at once. Transient,
-   only while a drag/resize gesture is engaged (CanvasItem's computeGuides). */
+/* Smart alignment guides (item-to-item/page-center, not page-boundary —
+   see .page-edge-glow above for that, a deliberately separate system):
+   a distinct, saturated accent color (never the purple used for
+   selection/UI chrome elsewhere) so the two never get confused, even
+   when both show at once. Transient, only while a drag/resize gesture is
+   engaged (CanvasItem's resolveAxisSnap). Prompt 19 visual-polish pass:
+   `top`/`left`/`width`/`height` are set INLINE per instance (the line's
+   bounded from/to span — see guideSpan in geometry.js) rather than
+   hardcoded full-page here, so an ordinary item-to-item alignment draws
+   only between the two elements involved; only a genuine page-center
+   match spans the full page. */
 .align-guide {
   position: absolute;
   background: #ff3d8a;
@@ -521,8 +528,8 @@ body {
   z-index: 6;
 }
 
-.align-guide--vertical { top: 0; bottom: 0; width: 1px; }
-.align-guide--horizontal { left: 0; right: 0; height: 1px; }
+.align-guide--vertical { width: 1px; }
+.align-guide--horizontal { height: 1px; }
 
 .align-guide-label {
   position: absolute;

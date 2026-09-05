@@ -7,17 +7,23 @@ import {
   RESIZE_HANDLES,
   resizeRotatedBox,
   snapRotation,
-  snapAxis,
   clampToPage,
   clampResizeToPage,
   getItemBounds,
   getFooterTop,
-  computeGuides,
   rotateVector,
   rotatedBoundingBox,
   resolveMoveCollision,
   resolveResizeCollision,
   edgeClearance,
+  alignmentCandidates,
+  boundaryCandidates,
+  findStickySnap,
+  guideSpan,
+  nearestGap,
+  detectEqualSpacing,
+  SNAP_ENGAGE_TOLERANCE,
+  SNAP_RELEASE_TOLERANCE,
 } from '../../utils/geometry';
 import { beginDragSelectGuard } from '../../utils/dragGuard';
 
@@ -489,6 +495,32 @@ export const RotateIcon = (
   </svg>
 );
 
+// Prompt 19: resolves ONE axis's alignment snap+guide for a drag-style
+// gesture. Equal-spacing takes priority when `rowNeighbors` (this axis's
+// other items sharing the cross-axis band, {pos,size} each, EXCLUDING the
+// dragged box) yields a match (item 2, the flagship feature) — pass an
+// empty array to skip it entirely (resize and group-move do, deliberately
+// — see their own call sites for why). Otherwise falls back to sticky
+// point-alignment against item edges/centers, the page's own center
+// (item 1), and the page/footer boundary (silently, no guide line — the
+// edge-glow already covers that). `wasSnapped` is this same axis's
+// engagement state from the previous frame (item 3's hysteresis); the
+// result's `snapped` is the new state to carry into the next frame.
+function resolveAxisSnap({ pos, size, candidates, rowNeighbors, wasSnapped, crossMin, crossMax, pageCrossSize }) {
+  const tolerance = wasSnapped ? SNAP_RELEASE_TOLERANCE : SNAP_ENGAGE_TOLERANCE;
+  const equal = rowNeighbors.length >= 2 ? detectEqualSpacing(pos, size, rowNeighbors, tolerance) : null;
+  if (equal) {
+    return { delta: equal.targetPos - pos, snapped: true, spacing: equal.gaps, line: null };
+  }
+  const match = findStickySnap(pos, size, candidates, wasSnapped);
+  if (!match) return { delta: 0, snapped: false, spacing: [], line: null };
+  if (match.candidate.isBoundary) {
+    return { delta: match.delta, snapped: true, spacing: [], line: null };
+  }
+  const [from, to] = guideSpan(crossMin, crossMax, match.candidate, pageCrossSize);
+  return { delta: match.delta, snapped: true, spacing: [], line: { value: match.candidate.value, from, to } };
+}
+
 // IMPORTANT: move/resize/rotate must each produce exactly ONE undo step per
 // gesture — local `live` preview state while the mouse is down, a single
 // `updateItem` commit on mouseup. Shared by shapes and content items alike;
@@ -651,12 +683,14 @@ export default function CanvasItem({ item, readOnly = false }) {
     const start = { x: e.clientX, y: e.clientY, origX: item.x, origY: item.y };
     const others = template.items.filter((i) => i.id !== item.id);
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
-    // This item's own boundary (true page edge for a shape, PAGE_PADDING
-    // inset for content) joins every other item's edges as snap candidates
-    // — same ~4px tolerance, so a drag lands flush against it just as
-    // readily as against a neighboring item (still required for rails).
-    const otherXEdges = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
-    const otherYEdges = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
+    // Prompt 19: the guide-eligible candidates (other items' edges/
+    // centers + the page's own center, item 1) plus the page/footer
+    // boundary this item's own kind can't cross (still a real snap
+    // target — landing flush should feel just as magnetic as aligning to
+    // a neighbor — but flagged so resolveAxisSnap skips a REDUNDANT pink
+    // line for it; the edge-glow already covers that same edge).
+    const xCandidates = [...alignmentCandidates('x', others, template.page), ...boundaryCandidates(bounds, 'x')];
+    const yCandidates = [...alignmentCandidates('y', others, template.page), ...boundaryCandidates(bounds, 'y')];
     // Collision is content-vs-content only — shapes stay exempt, same rail
     // exception as the Prompt 5 edge-padding rule. Neighbors are the raw
     // items (not pre-expanded boxes) — the cascade needs each one's own
@@ -670,18 +704,61 @@ export default function CanvasItem({ item, readOnly = false }) {
     let lastValid = { x: item.x, y: item.y };
     let finalPos = null;
     let finalPushed = new Map();
+    // Prompt 19 item 3 — sticky snap: whether EACH axis is currently
+    // engaged, tracked across this gesture's own mousemove frames so
+    // releasing needs to cross the wider release tolerance, not just the
+    // tighter engage one (resolveAxisSnap/findStickySnap).
+    let stickyX = false;
+    let stickyY = false;
 
     const onMove = (ev) => {
       draggedRef.current = true;
       let nx = start.origX + (ev.clientX - start.x);
       let ny = start.origY + (ev.clientY - start.y);
-      // (1) guide/edge snap, (2) page/footer boundary clamp, (3) collision
-      // clamp last — collision is the hardest constraint, so it must win
-      // if it disagrees with a snap; the guide line drawn below reflects
-      // the FINAL (post-collision) position, never a snap that collision
-      // ended up overriding.
-      nx += snapAxis(nx, item.width, otherXEdges);
-      ny += snapAxis(ny, item.height, otherYEdges);
+
+      // Prompt 19 item 2: who's "in the same row/column" as the dragged
+      // box right now — same overlap test the old distance-label always
+      // used — feeds BOTH the equal-spacing detector and (when that
+      // doesn't trigger) the plain nearest-gap label, for whichever axis
+      // isn't doing equal-spacing this frame.
+      const rowNeighbors = others
+        .filter((o) => o.y < ny + item.height && o.y + o.height > ny)
+        .map((o) => ({ pos: o.x, size: o.width }));
+      const colNeighbors = others
+        .filter((o) => o.x < nx + item.width && o.x + o.width > nx)
+        .map((o) => ({ pos: o.y, size: o.height }));
+
+      const snapX = resolveAxisSnap({
+        pos: nx,
+        size: item.width,
+        candidates: xCandidates,
+        rowNeighbors,
+        wasSnapped: stickyX,
+        crossMin: ny,
+        crossMax: ny + item.height,
+        pageCrossSize: template.page.height,
+      });
+      nx += snapX.delta;
+      stickyX = snapX.snapped;
+
+      const snapY = resolveAxisSnap({
+        pos: ny,
+        size: item.height,
+        candidates: yCandidates,
+        rowNeighbors: colNeighbors,
+        wasSnapped: stickyY,
+        crossMin: nx,
+        crossMax: nx + item.width,
+        pageCrossSize: template.page.width,
+      });
+      ny += snapY.delta;
+      stickyY = snapY.snapped;
+
+      // (1) guide/edge snap (above), (2) page/footer boundary clamp, (3)
+      // collision clamp last — collision is the hardest constraint, so it
+      // must win if it disagrees with a snap; the guide line drawn below
+      // reflects the FINAL (post-collision) position, never a snap that
+      // collision ended up overriding.
       const clamped = clampToPage({ x: nx, y: ny, width: item.width, height: item.height }, bounds);
       let fx = clamped.x;
       let fy = clamped.y;
@@ -703,7 +780,39 @@ export default function CanvasItem({ item, readOnly = false }) {
       finalPos = { x: fx, y: fy };
       finalPushed = pushed;
       setEdgeHighlight(clamped.edges);
-      setGuides(computeGuides({ x: fx, y: fy, width: item.width, height: item.height }, others));
+
+      // Fallback single-nearest-gap label (Prompt 6/14, unchanged) for
+      // whichever axis ISN'T showing equal-spacing markers this frame —
+      // the two never compete for the same axis at once.
+      const labels = [];
+      if (snapX.spacing.length === 0) {
+        const { before, after } = nearestGap(fx, item.width, rowNeighbors);
+        if (before !== null && (after === null || before <= after)) {
+          labels.push({ x: fx - before / 2, y: fy + item.height / 2, text: `${Math.round(before)}px` });
+        } else if (after !== null) {
+          labels.push({ x: fx + item.width + after / 2, y: fy + item.height / 2, text: `${Math.round(after)}px` });
+        }
+      }
+      if (snapY.spacing.length === 0) {
+        const { before, after } = nearestGap(fy, item.height, colNeighbors);
+        if (before !== null && (after === null || before <= after)) {
+          labels.push({ x: fx + item.width / 2, y: fy - before / 2, text: `${Math.round(before)}px` });
+        } else if (after !== null) {
+          labels.push({ x: fx + item.width / 2, y: fy + item.height + after / 2, text: `${Math.round(after)}px` });
+        }
+      }
+
+      const spacing = [
+        ...snapX.spacing.map((g) => ({ axis: 'x', from: g.start, to: g.end, cross: fy + item.height / 2, text: `${Math.round(g.value)}px` })),
+        ...snapY.spacing.map((g) => ({ axis: 'y', from: g.start, to: g.end, cross: fx + item.width / 2, text: `${Math.round(g.value)}px` })),
+      ];
+
+      setGuides({
+        vertical: snapX.line ? [snapX.line] : [],
+        horizontal: snapY.line ? [snapY.line] : [],
+        labels,
+        spacing,
+      });
       setLive(finalPos);
       setPushPreview(Object.fromEntries(pushed));
     };
@@ -766,6 +875,32 @@ export default function CanvasItem({ item, readOnly = false }) {
       };
     }
 
+    // Prompt 19 item 4: the group's OWN bounding box (every member, any
+    // kind — shapes included, matching how guides always treat every
+    // item) participates in guides as the thing being aligned while it's
+    // the one being dragged. The reverse (some OTHER single item snapping
+    // to a persisted group selection) doesn't apply here — starting a
+    // drag on a different item always collapses the selection to just
+    // that item first (see beginMove), so a group's guide box can never
+    // be a candidate for anything else to align to; scoped accordingly,
+    // per the prompt's own note to check which direction is meaningful.
+    // No equal-spacing here (Prompt 17/18 already scoped group gestures
+    // away from smart-guide snapping's extra complexity; this pass only
+    // adds the page-center/sticky-alignment half, not the flagship
+    // equal-spacing detection, to that same gesture).
+    const guideBoxes = groupMembers.map(withEffectiveSize).map(rotatedBoundingBox);
+    const guideEnvelope = {
+      minX: Math.min(...guideBoxes.map((b) => b.minX)),
+      minY: Math.min(...guideBoxes.map((b) => b.minY)),
+      width: Math.max(...guideBoxes.map((b) => b.maxX)) - Math.min(...guideBoxes.map((b) => b.minX)),
+      height: Math.max(...guideBoxes.map((b) => b.maxY)) - Math.min(...guideBoxes.map((b) => b.minY)),
+    };
+    const othersForGuides = template.items.filter((i) => !groupIdSet.has(i.id));
+    const groupXCandidates = alignmentCandidates('x', othersForGuides, template.page);
+    const groupYCandidates = alignmentCandidates('y', othersForGuides, template.page);
+    let stickyX = false;
+    let stickyY = false;
+
     // The single shared delta every member must obey: each member's own
     // kind-aware boundary (getItemBounds — true page edge for a shape,
     // PAGE_PADDING inset for content) caps how far it can personally
@@ -794,8 +929,40 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const onMove = (ev) => {
       draggedRef.current = true;
-      let dx = allowedDelta('x', ev.clientX - start.x);
-      let dy = allowedDelta('y', ev.clientY - start.y);
+      const rawDx = ev.clientX - start.x;
+      const rawDy = ev.clientY - start.y;
+
+      // Prompt 19 item 4: snap the GROUP's own envelope against outside
+      // items/page-center before the per-member boundary clamp below —
+      // same "snap first, then clamp, then collision" order a single
+      // item's own move already follows.
+      const candidateX = guideEnvelope.minX + rawDx;
+      const candidateY = guideEnvelope.minY + rawDy;
+      const snapX = resolveAxisSnap({
+        pos: candidateX,
+        size: guideEnvelope.width,
+        candidates: groupXCandidates,
+        rowNeighbors: [],
+        wasSnapped: stickyX,
+        crossMin: candidateY,
+        crossMax: candidateY + guideEnvelope.height,
+        pageCrossSize: template.page.height,
+      });
+      stickyX = snapX.snapped;
+      const snapY = resolveAxisSnap({
+        pos: candidateY,
+        size: guideEnvelope.height,
+        candidates: groupYCandidates,
+        rowNeighbors: [],
+        wasSnapped: stickyY,
+        crossMin: candidateX + snapX.delta,
+        crossMax: candidateX + snapX.delta + guideEnvelope.width,
+        pageCrossSize: template.page.width,
+      });
+      stickyY = snapY.snapped;
+
+      let dx = allowedDelta('x', rawDx + snapX.delta);
+      let dy = allowedDelta('y', rawDy + snapY.delta);
       let pushed = new Map();
 
       if (startEnvelope) {
@@ -842,6 +1009,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       });
 
       setEdgeHighlight(edges);
+      setGuides({ vertical: snapX.line ? [snapX.line] : [], horizontal: snapY.line ? [snapY.line] : [], labels: [], spacing: [] });
       setPushPreview(preview);
     };
     const onUp = () => {
@@ -878,16 +1046,23 @@ export default function CanvasItem({ item, readOnly = false }) {
     const startMouse = { x: e.clientX, y: e.clientY };
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     const others = template.items.filter((i) => i.id !== item.id);
-    // Same candidate set a move drag snaps against: every other item's
-    // left/center/right (or top/center/bottom), plus this item's own page
-    // boundary — a resized edge should land flush against a neighbor just
-    // as readily as against the page edge.
-    const snapXCandidates = [...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]), bounds.minX, bounds.maxX];
-    const snapYCandidates = [...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]), bounds.minY, bounds.maxY];
+    // Prompt 19: same candidate set a move drag snaps against — every
+    // other item's edges/centers, the page's own center (item 1), and
+    // the page/footer boundary (silent — see resolveAxisSnap) — a
+    // resized edge should land flush against any of those just as
+    // readily as a move would. Equal-spacing detection (item 2) is
+    // deliberately NOT wired into resize: it's defined in terms of a box
+    // translating past fixed-size neighbors, and a resize changes the
+    // dragged item's own size mid-gesture, which breaks that model — out
+    // of scope for this pass.
+    const xCandidates = [...alignmentCandidates('x', others, template.page), ...boundaryCandidates(bounds, 'x')];
+    const yCandidates = [...alignmentCandidates('y', others, template.page), ...boundaryCandidates(bounds, 'y')];
     const collisionNeighbors =
       item.kind === 'content' ? others.filter((o) => o.kind === 'content').map(withEffectiveSize) : null;
     let finalBox = null;
     let finalPushed = new Map();
+    let stickyX = false;
+    let stickyY = false;
 
     const onMove = (ev) => {
       draggedRef.current = true;
@@ -896,22 +1071,35 @@ export default function CanvasItem({ item, readOnly = false }) {
       // Snap only the edge this handle actually moves, keeping the other
       // (fixed) edge untouched — e.g. dragging the W handle may shift x
       // left/right, but must adjust width oppositely so the right edge
-      // stays exactly where the resize gesture already fixed it.
+      // stays exactly where the resize gesture already fixed it. `size:
+      // 0` collapses resolveAxisSnap's 3-point test (pos/center/far) down
+      // to just the one edge actually moving, same as the old snapAxis
+      // calls here did.
+      let lineX = null;
+      let lineY = null;
       if (handle.fx === 1) {
-        const delta = snapAxis(raw.x + raw.width, 0, snapXCandidates);
-        raw.width += delta;
+        const snap = resolveAxisSnap({ pos: raw.x + raw.width, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height });
+        raw.width += snap.delta;
+        stickyX = snap.snapped;
+        lineX = snap.line;
       } else if (handle.fx === 0) {
-        const delta = snapAxis(raw.x, 0, snapXCandidates);
-        raw.x += delta;
-        raw.width -= delta;
+        const snap = resolveAxisSnap({ pos: raw.x, size: 0, candidates: xCandidates, rowNeighbors: [], wasSnapped: stickyX, crossMin: raw.y, crossMax: raw.y + raw.height, pageCrossSize: template.page.height });
+        raw.x += snap.delta;
+        raw.width -= snap.delta;
+        stickyX = snap.snapped;
+        lineX = snap.line;
       }
       if (handle.fy === 1) {
-        const delta = snapAxis(raw.y + raw.height, 0, snapYCandidates);
-        raw.height += delta;
+        const snap = resolveAxisSnap({ pos: raw.y + raw.height, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width });
+        raw.height += snap.delta;
+        stickyY = snap.snapped;
+        lineY = snap.line;
       } else if (handle.fy === 0) {
-        const delta = snapAxis(raw.y, 0, snapYCandidates);
-        raw.y += delta;
-        raw.height -= delta;
+        const snap = resolveAxisSnap({ pos: raw.y, size: 0, candidates: yCandidates, rowNeighbors: [], wasSnapped: stickyY, crossMin: raw.x, crossMax: raw.x + raw.width, pageCrossSize: template.page.width });
+        raw.y += snap.delta;
+        raw.height -= snap.delta;
+        stickyY = snap.snapped;
+        lineY = snap.line;
       }
 
       const clamped = clampResizeToPage(raw, handle, bounds);
@@ -925,7 +1113,26 @@ export default function CanvasItem({ item, readOnly = false }) {
       finalBox = { x: box.x, y: box.y, width: box.width, height: box.height };
       finalPushed = pushed;
       setEdgeHighlight(clamped.edges);
-      setGuides(computeGuides(finalBox, others));
+
+      // Fallback nearest-gap labels (Prompt 6/14, unchanged) — resize has
+      // no equal-spacing markers to compete with, so these always show.
+      const rowNeighbors = others.filter((o) => o.y < box.y + box.height && o.y + o.height > box.y).map((o) => ({ pos: o.x, size: o.width }));
+      const colNeighbors = others.filter((o) => o.x < box.x + box.width && o.x + o.width > box.x).map((o) => ({ pos: o.y, size: o.height }));
+      const labels = [];
+      const gapX = nearestGap(box.x, box.width, rowNeighbors);
+      if (gapX.before !== null && (gapX.after === null || gapX.before <= gapX.after)) {
+        labels.push({ x: box.x - gapX.before / 2, y: box.y + box.height / 2, text: `${Math.round(gapX.before)}px` });
+      } else if (gapX.after !== null) {
+        labels.push({ x: box.x + box.width + gapX.after / 2, y: box.y + box.height / 2, text: `${Math.round(gapX.after)}px` });
+      }
+      const gapY = nearestGap(box.y, box.height, colNeighbors);
+      if (gapY.before !== null && (gapY.after === null || gapY.before <= gapY.after)) {
+        labels.push({ x: box.x + box.width / 2, y: box.y - gapY.before / 2, text: `${Math.round(gapY.before)}px` });
+      } else if (gapY.after !== null) {
+        labels.push({ x: box.x + box.width / 2, y: box.y + box.height + gapY.after / 2, text: `${Math.round(gapY.after)}px` });
+      }
+
+      setGuides({ vertical: lineX ? [lineX] : [], horizontal: lineY ? [lineY] : [], labels, spacing: [] });
       setLive(finalBox);
       setPushPreview(Object.fromEntries(pushed));
     };
