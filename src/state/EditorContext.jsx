@@ -448,10 +448,21 @@ export function EditorProvider({ children }) {
   // change. Hiding also drops the item from selection — a hidden item
   // isn't rendered/selectable on canvas, so leaving it "selected" behind
   // the scenes would show its properties for something invisible.
+  //
+  // Prompt 31: reverses that generality for exactly one item. The footer
+  // is fixed page chrome by original design (Prompt 4) — always locked,
+  // always visible, no exceptions — and Prompt 30 item 2 was wrong to
+  // make it toggleable. Guarded here, at the two shared mutation
+  // functions themselves, rather than only in the Layers panel's UI, so
+  // the rule lives in exactly one place regardless of how many surfaces
+  // ever call these (today just the Layers panel, which additionally
+  // disables its own buttons for this row so it LOOKS fixed, not just
+  // silently ignores clicks).
   const toggleItemLocked = useCallback(
     (id) => {
       const item = itemsById.get(id);
       if (!item) return;
+      if (item.type === 'footer') return;
       updateItem(id, { locked: !item.locked });
     },
     [itemsById, updateItem]
@@ -461,6 +472,7 @@ export function EditorProvider({ children }) {
     (id) => {
       const item = itemsById.get(id);
       if (!item) return;
+      if (item.type === 'footer') return;
       const hidden = !item.hidden;
       updateItem(id, { hidden });
       if (hidden) {

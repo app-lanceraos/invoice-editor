@@ -12,6 +12,44 @@ import { CheckIcon, ErrorIcon, WarningIcon } from '../Icons';
 //   label-value:  'label' + 'value' (Due Date / Issue Date)
 const SUB_PART_VARIANTS = new Set(['block', 'qr', 'label-value']);
 
+// Prompt 30 item 4: a bulk multi-select style change must reach every
+// selected item's ACTUAL rendered text, not just its top-level fields.
+// For a SUB_PART_VARIANT (block/qr/label-value), the item's own
+// top-level textColor/fontFamily/fontWeight/fontSize are never read at
+// all — ContentBody renders those variants entirely through item[part]
+// instead (see partInlineStyle in CanvasItem.jsx) — so a bulk write to
+// only the top-level field had no visible effect on them, even though it
+// worked correctly for flat variants (Business Name, Invoice Number,
+// ...). This routes the exact same patch into every text-bearing part
+// instead, for exactly those variants; every other variant keeps writing
+// the top-level field, same as before. Used for the Typography section's
+// Text color and Font controls only — Fill/Border/Radius are already
+// whole-item/frame-level fields for every variant (frameStyle reads them
+// uniformly), so those never needed this.
+function bulkTextStylePatch(item, patch) {
+  const def = ELEMENT_TYPES[item.type];
+  const variant = def?.variant;
+  if (variant === 'block') {
+    const result = { title: { ...(item.title || {}), ...patch } };
+    def.render().lines.forEach((line) => {
+      result[line.key] = { ...(item[line.key] || {}), ...patch };
+    });
+    return result;
+  }
+  if (variant === 'qr') {
+    // qr's "body" half is the QR graphic itself, not text — only its
+    // title takes a text-style patch.
+    return { title: { ...(item.title || {}), ...patch } };
+  }
+  if (variant === 'label-value') {
+    return {
+      label: { ...(item.label || {}), ...patch },
+      value: { ...(item.value || {}), ...patch },
+    };
+  }
+  return patch;
+}
+
 // Variants where "how content sits inside its own box" is a meaningful,
 // independent choice — distinct from the page-alignment buttons below,
 // which move the box itself. `table` cells have their own per-column
@@ -494,10 +532,10 @@ function ContentProperties({ items, pageAlignItem }) {
       {!hideTextControls && (
         <>
           <div className="panel__section-title">Typography</div>
-          <LinkableColorRow label="Text color" theme={theme} value={first.textColor} onChange={(v) => updateItems(ids, () => ({ textColor: v }))} fallback="#262420" />
+          <LinkableColorRow label="Text color" theme={theme} value={first.textColor} onChange={(v) => updateItems(ids, (item) => bulkTextStylePatch(item, { textColor: v }))} fallback="#262420" />
           <FontControls
             style={first}
-            onChange={(patch) => updateItems(ids, () => patch)}
+            onChange={(patch) => updateItems(ids, (item) => bulkTextStylePatch(item, patch))}
             defaultSize={variantDefaultFontSize(firstVariant)}
             theme={theme}
           />

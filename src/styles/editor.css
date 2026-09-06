@@ -49,9 +49,24 @@ body {
   background: var(--bg-panel);
 }
 
+/* Prompt 32 item 2: the real root of the "canvas pushes the right sidebar
+   off-screen" bug — `.app-shell` only ever declared ROW tracks, leaving
+   its single COLUMN implicit. An implicit `auto` column doesn't get
+   clamped to the container's own width the way an explicit `minmax(0,
+   1fr)` one does — it sizes to its content's preferred width instead, and
+   `.workspace`'s own widest possible content (an oversized/zoomed canvas)
+   is wide enough to blow that column out past the viewport, which then
+   stretched `.workspace` right back out to match regardless of anything
+   set on `.workspace` itself (confirmed: neither `min-width: 0` nor
+   `overflow: hidden` nor an explicit `width: 100%` on `.workspace` alone
+   fixed it — the oversized containing block was the actual problem, not
+   `.workspace`'s own sizing). `minmax(0, 1fr)` is the standard explicit
+   fix: a real track that's clamped to the available space, with `0` as
+   its floor instead of "as wide as my content wants." */
 .app-shell {
   display: grid;
   grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -135,10 +150,29 @@ body {
 
 /* ---------- Main layout ---------- */
 
+/* Prompt 32 item 2: CSS Grid's "auto min size" trap, two levels deep.
+   `.canvas-scroll` (the middle column's own content) can be much wider
+   than the viewport — its `overflow: auto` is what's SUPPOSED to make
+   grid treat its automatic minimum width as 0 instead of its actual
+   content size, letting the `1fr` track shrink to the real available
+   space while `.canvas-scroll` scrolls its own overflow internally. But
+   `.workspace` ITSELF is also a grid item — of `.app-shell`'s single
+   implicit column — with `overflow: visible` (the default), so IT was
+   still contributing ITS OWN content-based minimum width (i.e. its
+   widest row's, in practice the same oversized canvas) to how wide
+   `.app-shell`'s column gets allowed to be, which then stretched
+   `.workspace` right back out past the viewport regardless of its own
+   columns being sized correctly. `min-width: 0` alone doesn't fix this —
+   only `overflow` (here, hidden — nothing legitimately needs to overflow
+   `.workspace`'s own box; `.canvas-scroll` already owns the one place
+   that should scroll) makes grid apply the exemption. */
 .workspace {
   display: grid;
   grid-template-columns: 240px 1fr 280px;
+  width: 100%;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .panel {
@@ -350,6 +384,13 @@ body {
   white-space: nowrap;
 }
 
+/* Prompt 30 item 3: `<button>` elements get an opaque, dark UA-default
+   `color` (e.g. `ButtonText`) that does NOT inherit from the surrounding
+   dark theme the way a `<div>`/`<span>` would — every other button in
+   the app already sets `color` explicitly (`.tbtn`, `.panel-toggle-btn`,
+   `.modal-btn`) for exactly this reason; this one was the one place that
+   got missed, which is why its `currentColor`-based icons rendered
+   near-invisible against the dark row background. */
 .layer-row__icon-btn {
   flex-shrink: 0;
   width: 22px;
@@ -360,6 +401,7 @@ body {
   background: transparent;
   border: none;
   border-radius: 4px;
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
@@ -377,6 +419,52 @@ body {
   line-height: 1.5;
   margin: 0 0 8px;
 }
+
+/* ---------- Tooltip (Prompt 30 item 1) ---------- */
+
+/* Prompt 32 item 3: no longer needs `position: relative` — the tooltip
+   popup itself is portal-rendered into `document.body` with fixed
+   viewport coordinates now, not positioned relative to this wrapper. */
+.tooltip-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* For a tooltip wrapping a flex child that needs to shrink/grow/truncate
+   within its OWN flex parent (e.g. a layer row's label) — without this,
+   the wrapper span (not the child) becomes the actual flex item, and the
+   child's own `flex`/`min-width` rules stop doing anything. */
+.tooltip-wrap--flex-fill {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Prompt 32 item 3: `left`/`top` are set inline per instance (the
+   trigger's own measured `getBoundingClientRect`, via the portal in
+   Tooltip.jsx) — `position: fixed` + those viewport coordinates is what
+   lets this render fully outside any scrollable panel's own overflow
+   clipping, since it's no longer a DOM descendant of the trigger at all.
+   The two placements only differ in which way they translate off that
+   anchor point: `top` pins its own bottom-left... rather, its own BOTTOM
+   edge to the anchor (sitting above the trigger), `bottom` pins its own
+   TOP edge to it (sitting below) — both centered horizontally. */
+.tooltip--portal {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-panel-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-display);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-panel);
+}
+
+.tooltip--portal.tooltip--top { transform: translate(-50%, -100%); }
+.tooltip--portal.tooltip--bottom { transform: translate(-50%, 0); }
 
 .shape-btn {
   width: 100%;
@@ -432,6 +520,8 @@ body {
 
 .canvas-scroll {
   overflow: auto;
+  min-width: 0;
+  min-height: 0;
   background: radial-gradient(circle at 50% 0%, #0d0d18 0%, var(--bg-base) 60%);
   display: flex;
   justify-content: center;
@@ -605,11 +695,23 @@ body {
    that wrapper, not a child of it) — deliberately plain/unstyled-by-
    rotation positioning (top-right of the unrotated frame) so it stays
    legible even when the item itself is rotated. */
-.item__pixelation-badge {
+/* Prompt 30 item 1: positioning lives on the TOOLTIP WRAPPER now, not on
+   the badge itself — `.tooltip-wrap` has its own `position: relative`
+   (the containing block for the tooltip popup), so putting the badge's
+   `position: absolute` directly on it would resolve against that small
+   wrapper instead of the item's own frame. `pointer-events` is no longer
+   `none` here either — the badge needs real hover to trigger its own
+   tooltip (a plain mousedown that lands on it still bubbles up to the
+   frame's own drag handler, since neither this nor the wrapper stops
+   propagation, so dragging the image is unaffected). */
+.tooltip-wrap--pixelation-badge {
   position: absolute;
   top: -8px;
   right: -8px;
   z-index: 4;
+}
+
+.item__pixelation-badge {
   width: 18px;
   height: 18px;
   display: flex;
@@ -620,7 +722,6 @@ body {
   border-radius: 50%;
   font-size: 11px;
   line-height: 1;
-  pointer-events: none;
   box-shadow: 0 0 0 2px white;
 }
 

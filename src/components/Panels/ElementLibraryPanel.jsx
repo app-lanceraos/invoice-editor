@@ -1,6 +1,7 @@
 import React from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
+import Tooltip from '../Tooltip';
 
 // Renders just the content-element toggle list (no outer .panel wrapper —
 // this is composed into LeftPanel alongside the shape library). "On" means
@@ -23,13 +24,14 @@ export default function ElementLibraryPanel() {
         return (
           <div key={type} className="lib-item">
             <span>{def.label}</span>
-            <div
-              className={`lib-item__toggle${isOn ? ' lib-item__toggle--on' : ''}`}
-              onClick={() => toggleContentItem(type)}
-              title="Toggle on/off"
-            >
-              <div className="lib-item__toggle__dot" />
-            </div>
+            <Tooltip label="Toggle on/off">
+              <div
+                className={`lib-item__toggle${isOn ? ' lib-item__toggle--on' : ''}`}
+                onClick={() => toggleContentItem(type)}
+              >
+                <div className="lib-item__toggle__dot" />
+              </div>
+            </Tooltip>
           </div>
         );
       })}

@@ -9,6 +9,7 @@ import PropertiesPanel from './components/Panels/PropertiesPanel';
 import EditorCanvas from './components/Canvas/EditorCanvas';
 import PreviewModal from './components/PreviewModal';
 import ContextMenu from './components/ContextMenu';
+import Tooltip from './components/Tooltip';
 import { ChevronLeftIcon, ChevronRightIcon } from './components/Icons';
 
 const LEFT_WIDTH = 240;
@@ -42,29 +43,25 @@ function EditorShell() {
             own content) when expanded; collapsed, `.panel-wrap` just
             centers the lone button in the narrow rail — see item 2's own
             comment on why that's a distinct layout, not the same button
-            re-positioned. */}
+            re-positioned. Prompt 30 item 1: tooltips use `placement=
+            "bottom"` here since these buttons sit right under the
+            toolbar — a "top" tooltip would clip against/behind it. */}
         <div className={`panel-wrap${leftPanelCollapsed ? ' panel-wrap--collapsed' : ''}`}>
           {leftPanelCollapsed ? (
-            <button
-              className="panel-toggle-btn"
-              onClick={toggleLeftPanel}
-              aria-label="Expand elements panel"
-              title="Expand panel"
-            >
-              <ChevronRightIcon />
-            </button>
+            <Tooltip label="Expand panel" placement="bottom">
+              <button className="panel-toggle-btn" onClick={toggleLeftPanel} aria-label="Expand elements panel">
+                <ChevronRightIcon />
+              </button>
+            </Tooltip>
           ) : (
             <>
               <div className="panel-header">
                 <span className="panel-header__label">Elements</span>
-                <button
-                  className="panel-toggle-btn"
-                  onClick={toggleLeftPanel}
-                  aria-label="Collapse elements panel"
-                  title="Collapse panel"
-                >
-                  <ChevronLeftIcon />
-                </button>
+                <Tooltip label="Collapse panel" placement="bottom">
+                  <button className="panel-toggle-btn" onClick={toggleLeftPanel} aria-label="Collapse elements panel">
+                    <ChevronLeftIcon />
+                  </button>
+                </Tooltip>
               </div>
               <div className="panel">
                 <ElementLibraryPanel />
@@ -79,26 +76,20 @@ function EditorShell() {
         <EditorCanvas />
         <div className={`panel-wrap panel-wrap--right${rightPanelCollapsed ? ' panel-wrap--collapsed' : ''}`}>
           {rightPanelCollapsed ? (
-            <button
-              className="panel-toggle-btn"
-              onClick={toggleRightPanel}
-              aria-label="Expand properties panel"
-              title="Expand panel"
-            >
-              <ChevronLeftIcon />
-            </button>
+            <Tooltip label="Expand panel" placement="bottom">
+              <button className="panel-toggle-btn" onClick={toggleRightPanel} aria-label="Expand properties panel">
+                <ChevronLeftIcon />
+              </button>
+            </Tooltip>
           ) : (
             <>
               <div className="panel-header">
                 <span className="panel-header__label">Properties</span>
-                <button
-                  className="panel-toggle-btn"
-                  onClick={toggleRightPanel}
-                  aria-label="Collapse properties panel"
-                  title="Collapse panel"
-                >
-                  <ChevronRightIcon />
-                </button>
+                <Tooltip label="Collapse panel" placement="bottom">
+                  <button className="panel-toggle-btn" onClick={toggleRightPanel} aria-label="Collapse properties panel">
+                    <ChevronRightIcon />
+                  </button>
+                </Tooltip>
               </div>
               <PropertiesPanel />
             </>

@@ -3,14 +3,21 @@
 // a second one. `primaryColor` matches the app's existing dominant ink/
 // border tone (#262420 — used as the default-fallback border/text color
 // in several places already); `secondaryColor` matches the existing
-// accent tone used for block/qr titles (#a2896b). Both fonts start
-// identical (DM Sans, weight 400 — the app's actual current default,
-// inherited via CSS when no fontFamily is set at all) so introducing the
-// theme changes nothing visually until someone actually edits it.
+// accent tone used for block/qr titles (#a2896b).
+//
+// Prompt 30 item 6: heading and body fonts are deliberately DIFFERENT —
+// Source Serif 4 Bold for headings (distinctive, reads as a heading
+// treatment on its own), DM Sans Regular for body (the app's plain,
+// original default) — so a fresh template's theme already reads as an
+// intentional pairing, not two identical dropdowns. This is a deliberate
+// reversal of Prompt 28's own "start identical so nothing visually
+// changes yet" choice, since that constraint was specific to *introducing*
+// the theme without disturbing the template that predated it — this
+// prompt explicitly asks for the two to differ out of the box instead.
 export const DEFAULT_THEME = {
   primaryColor: '#262420',
   secondaryColor: '#a2896b',
-  headingFont: { family: 'dm-sans', weight: 400 },
+  headingFont: { family: 'source-serif-4', weight: 700 },
   bodyFont: { family: 'dm-sans', weight: 400 },
 };
 

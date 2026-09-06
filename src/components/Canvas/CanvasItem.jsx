@@ -3,6 +3,7 @@ import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
 import { WarningIcon } from '../Icons';
+import Tooltip from '../Tooltip';
 import { fontFamilyCSS } from '../../data/fonts';
 import {
   RESIZE_HANDLES,
@@ -1540,9 +1541,11 @@ export default function CanvasItem({ item, readOnly = false }) {
           shown in readOnly Preview — that's a genuine render, not an
           editing affordance). */}
       {!readOnly && item.kind === 'image' && isImagePixelated(item, current.width, current.height) && (
-        <div className="item__pixelation-badge" title="This image may look pixelated at its current size">
-          <WarningIcon size={11} />
-        </div>
+        <Tooltip label="This image may look pixelated at its current size" className="tooltip-wrap--pixelation-badge">
+          <div className="item__pixelation-badge">
+            <WarningIcon size={11} />
+          </div>
+        </Tooltip>
       )}
 
       {isTextVariant && (

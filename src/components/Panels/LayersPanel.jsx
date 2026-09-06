@@ -3,6 +3,7 @@ import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { SHAPE_TYPES } from '../../data/shapeCatalog';
 import { EyeIcon, EyeOffIcon, LockIcon, UnlockIcon } from '../Icons';
+import Tooltip from '../Tooltip';
 
 // Prompt 26 item 2: every item's display label — the catalog's own name
 // for content (single-instance per type, so it's already unambiguous),
@@ -99,6 +100,13 @@ export default function LayersPanel() {
       <div className="layers-list">
         {frontFirst.map((item) => {
           const isSelected = selection.ids.includes(item.id);
+          // Prompt 32 item 1 (revises Prompt 31's disabled-buttons take):
+          // the footer is permanently locked/visible (fixed page chrome,
+          // Prompt 4) — its row shows NO lock/eye controls at all, rather
+          // than a disabled pair. EditorContext's toggleItemLocked/
+          // toggleItemHidden still guard `type === 'footer'` regardless,
+          // so this is purely about what the row displays.
+          const isFooter = item.type === 'footer';
           return (
             <div
               key={item.id}
@@ -116,34 +124,41 @@ export default function LayersPanel() {
                 setOverId(null);
               }}
               onClick={(e) => selectItem(e, item.id)}
-              title={labels.get(item.id)}
             >
               <span className={`layer-row__kind layer-row__kind--${item.kind}`} aria-hidden="true" />
-              <span className="layer-row__label">{labels.get(item.id)}</span>
-              <button
-                type="button"
-                className="layer-row__icon-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleItemHidden(item.id);
-                }}
-                aria-label={item.hidden ? 'Show layer' : 'Hide layer'}
-                title={item.hidden ? 'Show' : 'Hide'}
-              >
-                {item.hidden ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
-              <button
-                type="button"
-                className="layer-row__icon-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleItemLocked(item.id);
-                }}
-                aria-label={item.locked ? 'Unlock layer' : 'Lock layer'}
-                title={item.locked ? 'Unlock' : 'Lock'}
-              >
-                {item.locked ? <LockIcon /> : <UnlockIcon />}
-              </button>
+              <Tooltip label={labels.get(item.id)} className="tooltip-wrap--flex-fill">
+                <span className="layer-row__label">{labels.get(item.id)}</span>
+              </Tooltip>
+              {!isFooter && (
+                <Tooltip label={item.hidden ? 'Show' : 'Hide'}>
+                  <button
+                    type="button"
+                    className="layer-row__icon-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleItemHidden(item.id);
+                    }}
+                    aria-label={item.hidden ? 'Show layer' : 'Hide layer'}
+                  >
+                    {item.hidden ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </Tooltip>
+              )}
+              {!isFooter && (
+                <Tooltip label={item.locked ? 'Unlock' : 'Lock'}>
+                  <button
+                    type="button"
+                    className="layer-row__icon-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleItemLocked(item.id);
+                    }}
+                    aria-label={item.locked ? 'Unlock layer' : 'Lock layer'}
+                  >
+                    {item.locked ? <LockIcon /> : <UnlockIcon />}
+                  </button>
+                </Tooltip>
+              )}
             </div>
           );
         })}
