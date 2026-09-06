@@ -45,10 +45,6 @@ export default function ShapeLibraryPanel() {
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
-      <p className="empty-hint" style={{ marginTop: 10 }}>
-        You can also paste an image directly from your clipboard
-        (⌘V / Ctrl+V).
-      </p>
     </>
   );
 }

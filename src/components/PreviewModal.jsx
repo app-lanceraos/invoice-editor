@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import { useEditor } from '../state/EditorContext';
 import EditorCanvas from './Canvas/EditorCanvas';
+import { CloseIcon } from './Icons';
 
 // The preview is deliberately just the SAME canvas tree in a modal — no
 // separate render path, so there's no risk of preview drifting from what
@@ -48,7 +49,9 @@ export default function PreviewModal({ onClose }) {
         <button className="modal-btn" onClick={handleDownload} disabled={downloading}>
           {downloading ? 'Preparing…' : 'Download PNG'}
         </button>
-        <button className="modal-btn" onClick={onClose}>Close preview ✕</button>
+        <button className="modal-btn" onClick={onClose}>
+          Close preview <CloseIcon size={12} />
+        </button>
       </div>
       <div ref={containerRef} onClick={(e) => e.stopPropagation()} style={{ transform: 'scale(0.85)' }}>
         <EditorCanvas readOnly />

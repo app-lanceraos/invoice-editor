@@ -9,6 +9,7 @@ import PropertiesPanel from './components/Panels/PropertiesPanel';
 import EditorCanvas from './components/Canvas/EditorCanvas';
 import PreviewModal from './components/PreviewModal';
 import ContextMenu from './components/ContextMenu';
+import { ChevronLeftIcon, ChevronRightIcon } from './components/Icons';
 
 const LEFT_WIDTH = 240;
 const RIGHT_WIDTH = 280;
@@ -50,7 +51,7 @@ function EditorShell() {
               aria-label="Expand elements panel"
               title="Expand panel"
             >
-              ▶
+              <ChevronRightIcon />
             </button>
           ) : (
             <>
@@ -62,7 +63,7 @@ function EditorShell() {
                   aria-label="Collapse elements panel"
                   title="Collapse panel"
                 >
-                  ◀
+                  <ChevronLeftIcon />
                 </button>
               </div>
               <div className="panel">
@@ -84,7 +85,7 @@ function EditorShell() {
               aria-label="Expand properties panel"
               title="Expand panel"
             >
-              ◀
+              <ChevronLeftIcon />
             </button>
           ) : (
             <>
@@ -96,7 +97,7 @@ function EditorShell() {
                   aria-label="Collapse properties panel"
                   title="Collapse panel"
                 >
-                  ▶
+                  <ChevronRightIcon />
                 </button>
               </div>
               <PropertiesPanel />

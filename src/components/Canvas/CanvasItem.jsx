@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { useEditor } from '../../state/EditorContext';
 import { WordmarkSVG } from '../Brand';
+import { WarningIcon } from '../Icons';
 import { fontFamilyCSS } from '../../data/fonts';
 import {
   RESIZE_HANDLES,
@@ -747,8 +748,13 @@ export default function CanvasItem({ item, readOnly = false }) {
     // this very handler until the next render, so the gesture that's
     // about to start needs its own, immediately-correct view of who's
     // selected — computed locally rather than read back from `selection`.
+    // Prompt 29 item 3: Ctrl/Cmd-click is a second, more universally-
+    // expected modifier for the exact same toggle — most non-Mac design
+    // tools reach for Ctrl here rather than Shift, and Cmd is the Mac
+    // equivalent of that same "toggle" gesture elsewhere in this app
+    // (undo/redo, etc.), so both are accepted identically.
     let effectiveIds = selection.ids;
-    if (e.shiftKey) {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
       effectiveIds = selection.ids.includes(item.id)
         ? selection.ids.filter((id) => id !== item.id)
         : [...selection.ids, item.id];
@@ -1535,7 +1541,7 @@ export default function CanvasItem({ item, readOnly = false }) {
           editing affordance). */}
       {!readOnly && item.kind === 'image' && isImagePixelated(item, current.width, current.height) && (
         <div className="item__pixelation-badge" title="This image may look pixelated at its current size">
-          ⚠
+          <WarningIcon size={11} />
         </div>
       )}
 

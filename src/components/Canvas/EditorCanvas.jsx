@@ -87,7 +87,18 @@ export default function EditorCanvas({ readOnly = false }) {
           ref={pageFrameRef}
           className="page-frame"
           style={{ background: template.page.backgroundColor, transform: `scale(${scale})` }}
-          onMouseDown={readOnly ? undefined : () => setSelection({ ids: [], part: null })}
+          onMouseDown={
+            readOnly
+              ? undefined
+              : (e) => {
+                  // Prompt 29 item 6: a right/middle-click headed for the
+                  // native contextmenu event must never clear the
+                  // selection first — see CanvasLayer's startMarquee for
+                  // the matching fix on the layer just inside this frame.
+                  if (e.button !== 0) return;
+                  setSelection({ ids: [], part: null });
+                }
+          }
         >
           <CanvasLayer readOnly={readOnly} />
           {!readOnly && edgeHighlight?.top && <div className="page-edge-glow page-edge-glow--top" />}

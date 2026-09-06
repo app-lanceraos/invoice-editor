@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { SHAPE_TYPES } from '../../data/shapeCatalog';
+import { EyeIcon, EyeOffIcon, LockIcon, UnlockIcon } from '../Icons';
 
 // Prompt 26 item 2: every item's display label — the catalog's own name
 // for content (single-instance per type, so it's already unambiguous),
@@ -58,7 +59,7 @@ export default function LayersPanel() {
   const frontFirst = [...template.items].reverse();
 
   const selectItem = (e, id) => {
-    if (e.shiftKey) {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
       setSelection((prev) => ({
         ids: prev.ids.includes(id) ? prev.ids.filter((x) => x !== id) : [...prev.ids, id],
         part: null,
@@ -129,7 +130,7 @@ export default function LayersPanel() {
                 aria-label={item.hidden ? 'Show layer' : 'Hide layer'}
                 title={item.hidden ? 'Show' : 'Hide'}
               >
-                {item.hidden ? '🙈' : '👁'}
+                {item.hidden ? <EyeOffIcon /> : <EyeIcon />}
               </button>
               <button
                 type="button"
@@ -141,7 +142,7 @@ export default function LayersPanel() {
                 aria-label={item.locked ? 'Unlock layer' : 'Lock layer'}
                 title={item.locked ? 'Unlock' : 'Lock'}
               >
-                {item.locked ? '🔒' : '🔓'}
+                {item.locked ? <LockIcon /> : <UnlockIcon />}
               </button>
             </div>
           );

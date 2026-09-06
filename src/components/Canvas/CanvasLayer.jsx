@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { detectRail } from '../../data/shapeCatalog';
 import { beginDragSelectGuard } from '../../utils/dragGuard';
+import { rotatedBoundingBox } from '../../utils/geometry';
 import CanvasItem from './CanvasItem';
 import GroupSelectionOverlay from './GroupSelectionOverlay';
 
@@ -11,7 +12,7 @@ import GroupSelectionOverlay from './GroupSelectionOverlay';
 // regardless of where either sits in the underlying flat `template.items`
 // array (which only orders items relative to their own kind-group).
 export default function CanvasLayer({ readOnly = false }) {
-  const { template, selection, setSelection, guides, zoom } = useEditor();
+  const { template, selection, setSelection, guides, zoom, setContextMenu } = useEditor();
   const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas, in PAGE units
 
   // Prompt 26 item 3: painted in a SINGLE pass, in `template.items`'s own
@@ -31,6 +32,12 @@ export default function CanvasLayer({ readOnly = false }) {
   const shapes = visibleItems.filter((i) => i.kind === 'shape');
 
   const startMarquee = (e) => {
+    // Prompt 29 item 6: a right (or middle) click on empty canvas must
+    // never clear the selection or start a marquee — it's headed for the
+    // native `contextmenu` event right after this same `mousedown`, and
+    // clearing the selection here would wipe out a multi-selection before
+    // handleContextMenu below ever gets a chance to see it.
+    if (e.button !== 0) return;
     if (e.target !== e.currentTarget) return; // only start on empty canvas, not on an item
     const restoreSelection = beginDragSelectGuard();
     // Prompt 22: `.canvas-layer` is itself a child of the CSS-zoomed
@@ -81,6 +88,37 @@ export default function CanvasLayer({ readOnly = false }) {
     window.addEventListener('mouseup', onUp);
   };
 
+  // Prompt 29 item 6: right-clicking directly on a selected item already
+  // opens the (Prompt 15) common-capability context menu via that item's
+  // own onContextMenu (CanvasItem's beginContextMenu, which stops
+  // propagation) — but right-clicking in the EMPTY gap between members of
+  // a multi-selection (inside the Prompt 18 group overlay's bounding box,
+  // which is itself `pointer-events: none` so nothing catches it there)
+  // used to bubble all the way up with no handler at all, doing nothing.
+  // This catches exactly that gap: only 2+ selected items even have a
+  // meaningful "bounding area" to be "inside," and only when nothing
+  // closer to the actual target already handled it.
+  const handleContextMenu = (e) => {
+    if (readOnly) return;
+    if (selection.ids.length < 2) return;
+    const selectedItems = template.items.filter((i) => selection.ids.includes(i.id));
+    if (selectedItems.length < 2) return;
+    const scale = zoom / 100;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / scale;
+    const py = (e.clientY - rect.top) / scale;
+    const boxes = selectedItems.map(rotatedBoundingBox);
+    const minX = Math.min(...boxes.map((b) => b.minX));
+    const maxX = Math.max(...boxes.map((b) => b.maxX));
+    const minY = Math.min(...boxes.map((b) => b.minY));
+    const maxY = Math.max(...boxes.map((b) => b.maxY));
+    if (px >= minX && px <= maxX && py >= minY && py <= maxY) {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    }
+  };
+
   // Live rail preview: while a selected shape is near an edge, show the
   // dashed safe-area indicator (approximated from committed shape state —
   // good enough since rail recognition only matters once released).
@@ -89,7 +127,11 @@ export default function CanvasLayer({ readOnly = false }) {
     .filter((r) => r.rail && selection.ids.includes(r.shape.id));
 
   return (
-    <div className="canvas-layer" onMouseDown={readOnly ? undefined : startMarquee}>
+    <div
+      className="canvas-layer"
+      onMouseDown={readOnly ? undefined : startMarquee}
+      onContextMenu={readOnly ? undefined : handleContextMenu}
+    >
       {visibleItems.map((item) => (
         <CanvasItem key={item.id} item={item} readOnly={readOnly} />
       ))}

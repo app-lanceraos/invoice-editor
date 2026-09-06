@@ -4,6 +4,7 @@ import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { getItemBounds, getFooterTop, resolveMoveCollision } from '../../utils/geometry';
 import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fonts';
 import { isLinked, resolveColorValue, resolveFontValue } from '../../utils/theme';
+import { CheckIcon, ErrorIcon, WarningIcon } from '../Icons';
 
 // Variants whose text is split into independently-styleable parts (see
 // item[part] in CanvasItem.jsx) — kept in sync with CanvasItem:
@@ -889,20 +890,18 @@ export default function PropertiesPanel() {
         <>
           <ThemePanel />
           <PageProperties />
-          <p className="empty-hint" style={{ marginTop: 14 }}>
-            Select a content element or shape on the canvas to edit its style here.
-          </p>
         </>
       )}
 
       {saveState.status !== 'idle' && (
         <div className="validation-list">
-          <div className="panel__section-title" style={{ margin: 0, marginBottom: 8 }}>
-            {saveState.status === 'saved' ? 'Saved ✓' : 'Fix before saving'}
+          <div className="panel__section-title" style={{ margin: 0, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saveState.status === 'saved' && <CheckIcon size={12} />}
+            <span>{saveState.status === 'saved' ? 'Saved' : 'Fix before saving'}</span>
           </div>
           {saveState.issues.map((issue, i) => (
             <div key={i} className={`validation-item validation-item--${issue.level}`}>
-              <span>{issue.level === 'error' ? '⛔' : '⚠️'}</span>
+              <span className="validation-item__icon">{issue.level === 'error' ? <ErrorIcon size={13} /> : <WarningIcon size={13} />}</span>
               <span>{issue.message}</span>
             </div>
           ))}
