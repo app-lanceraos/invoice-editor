@@ -500,6 +500,19 @@ export function EditorProvider({ children }) {
     [template, commit]
   );
 
+  // Prompt 28 item 4: a shallow merge into `template.theme` — every item
+  // linked to whichever slot(s) `patch` touches re-resolves and re-
+  // renders on the very next paint (CanvasItem reads `template.theme`
+  // directly via resolveItemTheme), with no per-item action needed. Goes
+  // through the normal commit/history path, same as any other template
+  // edit — a theme change is undoable like everything else.
+  const updateTheme = useCallback(
+    (patch) => {
+      commit({ ...template, theme: { ...template.theme, ...patch } });
+    },
+    [template, commit]
+  );
+
   // rails: recompute which shapes currently act as edge rails, and by how
   // much they'd inset the page's safe area on each side (used by
   // validation only now — there's no flow container left to actually pad).
@@ -569,6 +582,7 @@ export function EditorProvider({ children }) {
     groupItems,
     ungroupItems,
     updatePageBackground,
+    updateTheme,
   };
 
   return <EditorStateContext.Provider value={value}>{children}</EditorStateContext.Provider>;

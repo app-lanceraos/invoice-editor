@@ -338,6 +338,71 @@ export const ELEMENT_TYPES = {
   },
 };
 
+// Prompt 28 item 3: new items default to theme-linked style fields
+// instead of a hardcoded literal, so a template built entirely from
+// defaults already looks cohesive and a later theme change reaches
+// everything that was never manually overridden. Only fields with a
+// genuinely sensible slot get one — there's no "background" theme slot,
+// so bgColor is left unset (transparent), same as before this prompt.
+// `borderColor` links on every variant (frame-level, always present even
+// while invisible at the default borderWidth:0). `textColor` links to
+// `primary` for text/note/table — their existing default (no explicit
+// textColor at all) already inherits `--page-text: #262420`, which is
+// exactly `theme.primaryColor`'s own default value, so this changes
+// nothing visually. block/qr titles link their text to `secondary` and
+// heading font (titles read as headings); block lines link to the body
+// font; text/note's own whole-item font links to body too.
+//
+// Three deliberate exceptions, found while checking this against the
+// "must look identical" requirement — each is a case where CanvasItem.jsx
+// couples the field to a SECOND fallback in a way a theme link would
+// silently break:
+//   - `footer`'s textColor: `.item__footer`'s own CSS sets `color:
+//     #a09a89` (a muted tone, NOT `--page-text`), and that same
+//     `item.textColor` also recolors the wordmark via `item.textColor ||
+//     '#a09a89'` — linking it to primary (#262420) would darken both
+//     away from their actual current default. Left unlinked.
+//   - `table`'s fontFamily/fontWeight: `.item__table th`'s own weight
+//     fallback is `item.headerFontWeight || item.fontWeight || 700` — if
+//     the generic (body-cell-facing) `item.fontFamily`/`fontWeight` were
+//     linked, `item.fontWeight` would resolve to the theme's weight
+//     (never `undefined`), permanently short-circuiting that `|| 700`
+//     and un-bolding the header by default. Left unlinked so the
+//     existing fallback chain keeps working exactly as before.
+//   - `label-value` with `strong: true` (Total due): its hardcoded
+//     fallback weight is 700 for BOTH its label and value
+//     (`def.strong ? 700 : undefined` in CanvasItem's fontStyle calls)
+//     — a font link would override that per-part fontWeight with the
+//     theme's weight the same way, un-bolding it. Rather than special-
+//     case just the strong rows, label-value parts are left unlinked by
+//     default entirely — still linkable by hand per-item, same as any
+//     other field, just not automatic.
+function defaultWholeItemStyle(def) {
+  const style = { borderColor: { linked: 'primary' } };
+  if (['text', 'note', 'table'].includes(def.variant)) {
+    style.textColor = { linked: 'primary' };
+  }
+  if (['text', 'note', 'footer'].includes(def.variant)) {
+    style.fontFamily = { linked: 'body' };
+  }
+  return style;
+}
+
+function defaultPartStyles(def) {
+  if (def.variant === 'block') {
+    const styles = { title: { textColor: { linked: 'secondary' }, fontFamily: { linked: 'heading' } } };
+    def.render().lines.forEach((line) => {
+      styles[line.key] = { fontFamily: { linked: 'body' } };
+    });
+    return styles;
+  }
+  if (def.variant === 'qr') {
+    // The QR pattern's own body has no text to font-link — only its title.
+    return { title: { textColor: { linked: 'secondary' }, fontFamily: { linked: 'heading' } } };
+  }
+  return {};
+}
+
 export const createContentItem = (type) => {
   const def = ELEMENT_TYPES[type];
   const { x, y, width, height } = def.defaultBox;
@@ -353,5 +418,7 @@ export const createContentItem = (type) => {
     naturalHeight: height,
     rotation: 0,
     locked: !!def.locked,
+    ...defaultWholeItemStyle(def),
+    ...defaultPartStyles(def),
   };
 };

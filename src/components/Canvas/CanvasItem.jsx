@@ -26,6 +26,7 @@ import {
   SNAP_RELEASE_TOLERANCE,
 } from '../../utils/geometry';
 import { beginDragSelectGuard } from '../../utils/dragGuard';
+import { resolveItemTheme } from '../../utils/theme';
 
 // Table columns default to equal shares of the table's width; stored as
 // percentages (summing to 100) rather than px, so they stay meaningful
@@ -674,7 +675,15 @@ export default function CanvasItem({ item, readOnly = false }) {
   // ISN'T itself the one being actively dragged/resized right now — `live`
   // always wins when both would otherwise apply.
   const pushedHere = !live && pushPreview[item.id];
-  const current = { ...item, ...(live || {}), ...(pushedHere || {}) };
+  const rawCurrent = { ...item, ...(live || {}), ...(pushedHere || {}) };
+  // Prompt 28: resolved ONCE, here — every downstream reader (ContentBody,
+  // ShapeBody, frameStyle, partInlineStyle, the effective-size measurement
+  // clones) sees plain literal textColor/bgColor/borderColor/fill/
+  // fontFamily/fontWeight values and stays completely unaware that
+  // theme-linking exists, exactly like before this prompt. `template.theme`
+  // is live editor state, so this re-resolves (and re-renders) the instant
+  // the theme panel changes anything a linked field on this item points at.
+  const current = resolveItemTheme(rawCurrent, template.theme);
   const rotation = current.rotation || 0;
 
   // Text variants (Prompt 13) don't scale their content to the box at
@@ -1419,15 +1428,21 @@ export default function CanvasItem({ item, readOnly = false }) {
   // `borderColor`/`borderWidth`/`cornerRadius`) — it just has no
   // ELEMENT_TYPES entry to drive a logo mask, text color, etc., so
   // `logoRadius` (content-only) is correctly always null for it.
+  // Prompt 28: reads `current` (theme-resolved), not the raw `item` prop,
+  // for every field that can carry a theme-link sentinel — borderColor/
+  // bgColor/textColor. `borderWidth`/`cornerRadius` are plain numbers,
+  // never linkable, so those stay on `item` (equivalent either way, since
+  // resolveItemTheme passes them through unchanged, but `item` is what
+  // every OTHER numeric read on this component already uses).
   const frameStyle =
     item.kind === 'content' || item.kind === 'image'
       ? {
           borderRadius: logoRadius !== null ? logoRadius : item.cornerRadius ?? 0,
-          borderColor: item.borderColor,
+          borderColor: current.borderColor,
           borderWidth: item.borderWidth ? `${item.borderWidth}px` : undefined,
           borderStyle: item.borderWidth ? 'solid' : undefined,
-          color: item.textColor,
-          background: item.bgColor,
+          color: current.textColor,
+          background: current.bgColor,
         }
       : { borderRadius: shapeBorderRadius(item) };
 
@@ -1495,9 +1510,9 @@ export default function CanvasItem({ item, readOnly = false }) {
         }}
       >
         {item.kind === 'shape' ? (
-          <ShapeBody item={item} />
+          <ShapeBody item={current} />
         ) : item.kind === 'image' ? (
-          <ImageBody item={item} />
+          <ImageBody item={current} />
         ) : (
           <ContentBody
             item={current}

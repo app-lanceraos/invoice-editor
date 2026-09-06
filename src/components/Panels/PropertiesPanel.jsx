@@ -3,6 +3,7 @@ import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { getItemBounds, getFooterTop, resolveMoveCollision } from '../../utils/geometry';
 import { FONT_FAMILIES, FONT_WEIGHT_LABELS, fontFamilyById } from '../../data/fonts';
+import { isLinked, resolveColorValue, resolveFontValue } from '../../utils/theme';
 
 // Variants whose text is split into independently-styleable parts (see
 // item[part] in CanvasItem.jsx) — kept in sync with CanvasItem:
@@ -81,6 +82,49 @@ function SliderRow({ label, min, max, step = 1, value, onChange }) {
   );
 }
 
+// Prompt 28: the "linked vs custom" selector shared by every control that
+// supports theme-linking — a small, consistent pattern rather than a
+// bespoke toggle per property (colors get Primary/Secondary/Custom, fonts
+// get Heading/Body/Custom, same select+swatch/fields shape either way).
+const COLOR_LINK_OPTIONS = [['primary', 'Primary'], ['secondary', 'Secondary'], ['custom', 'Custom']];
+const FONT_LINK_OPTIONS = [['heading', 'Heading font'], ['body', 'Body font'], ['custom', 'Custom']];
+
+// A color control that can be linked to the theme's primary/secondary
+// slot instead of holding its own literal value. `value` is the RAW
+// stored field (a literal string, undefined, or a `{linked}` sentinel —
+// see utils/theme.js); `theme` resolves it for display. The swatch is
+// disabled while linked — nudging a linked value isn't a local edit, it's
+// either "change the theme" (Theme panel) or "detach to custom" (the
+// select) — never both at once from the same control.
+function LinkableColorRow({ label, value, onChange, theme, fallback = '#faf9f6' }) {
+  const linked = isLinked(value) ? value.linked : null;
+  // `<input type="color">` can't display 'transparent' at all (some
+  // shapes' literal default) — shown as black instead, same as before
+  // this control existed.
+  let resolved = resolveColorValue(value, theme) || fallback;
+  if (resolved === 'transparent') resolved = '#000000';
+  return (
+    <div className="prop-row">
+      <label>{label}</label>
+      <div className="linked-control">
+        <select
+          className="linked-control__select"
+          value={linked || 'custom'}
+          onChange={(e) => {
+            const v = e.target.value;
+            // Detach at the currently-resolved appearance (not a jarring
+            // reset to some unrelated hardcoded default) when going custom.
+            onChange(v === 'custom' ? resolved : { linked: v });
+          }}
+        >
+          {COLOR_LINK_OPTIONS.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+        </select>
+        <input type="color" value={resolved} disabled={!!linked} onChange={(e) => onChange(e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
 // Font-family + font-weight + font-size controls, shared by whole-item and
 // per-part property panels alike. `style` is whatever flat style object (an
 // item, or an item[part]) already holds textColor/bgColor/etc; `onChange`
@@ -88,31 +132,60 @@ function SliderRow({ label, min, max, step = 1, value, onChange }) {
 // do. `defaultSize` is that variant/part's own baked-in CSS size (see the
 // matching fallback passed to fontStyle()/partInlineStyle() in
 // CanvasItem.jsx) — shown until the user picks an explicit override.
-function FontControls({ style, onChange, defaultSize }) {
-  const currentFamily = fontFamilyById(style.fontFamily);
+//
+// Prompt 28: family+weight now travel as ONE linkable pair — `theme`
+// resolves the pair for display (and for what "Custom" detaches AT, so
+// switching away from a link never jars to an unrelated default); the
+// Family/Weight selects only appear at all once the pair is custom, since
+// while linked, both fields come entirely from the theme (see
+// resolveFontValue) and the item's own fontWeight is irrelevant/ignored.
+function FontControls({ style, onChange, defaultSize, theme }) {
+  const linked = isLinked(style.fontFamily) ? style.fontFamily.linked : null;
+  const resolvedFont = resolveFontValue(style.fontFamily, style.fontWeight, theme);
+  const currentFamily = fontFamilyById(resolvedFont.fontFamily);
   const weights = currentFamily.weights;
-  const currentWeight = style.fontWeight && weights.includes(style.fontWeight) ? style.fontWeight : weights[0];
+  const currentWeight = resolvedFont.fontWeight && weights.includes(resolvedFont.fontWeight) ? resolvedFont.fontWeight : weights[0];
 
   return (
     <>
       <div className="prop-row">
         <label>Font</label>
         <select
-          value={currentFamily.id}
+          value={linked || 'custom'}
           onChange={(e) => {
-            const next = FONT_FAMILIES.find((f) => f.id === e.target.value);
-            onChange({ fontFamily: next.id, fontWeight: next.weights[0] });
+            const v = e.target.value;
+            if (v === 'custom') {
+              onChange({ fontFamily: currentFamily.id, fontWeight: currentWeight });
+            } else {
+              onChange({ fontFamily: { linked: v }, fontWeight: undefined });
+            }
           }}
         >
-          {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          {FONT_LINK_OPTIONS.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
         </select>
       </div>
-      <div className="prop-row">
-        <label>Weight</label>
-        <select value={currentWeight} onChange={(e) => onChange({ fontWeight: Number(e.target.value) })}>
-          {weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
-        </select>
-      </div>
+      {!linked && (
+        <>
+          <div className="prop-row">
+            <label>Family</label>
+            <select
+              value={currentFamily.id}
+              onChange={(e) => {
+                const next = FONT_FAMILIES.find((f) => f.id === e.target.value);
+                onChange({ fontFamily: next.id, fontWeight: next.weights[0] });
+              }}
+            >
+              {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+          <div className="prop-row">
+            <label>Weight</label>
+            <select value={currentWeight} onChange={(e) => onChange({ fontWeight: Number(e.target.value) })}>
+              {weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
+            </select>
+          </div>
+        </>
+      )}
       <div className="prop-row">
         <label>Size</label>
         <input
@@ -263,7 +336,8 @@ function partDefaultFontSize(def, part) {
 }
 
 function PartProperties({ item, part, pageAlignItem }) {
-  const { updateItemPart, deleteBlockLine, canDeleteBlockLine } = useEditor();
+  const { template, updateItemPart, deleteBlockLine, canDeleteBlockLine } = useEditor();
+  const theme = template.theme;
   const def = ELEMENT_TYPES[item.type];
   const label = partLabel(def, part);
   const deletable = canDeleteBlockLine(item.id, part);
@@ -277,25 +351,17 @@ function PartProperties({ item, part, pageAlignItem }) {
       </div>
 
       <div className="panel__section-title">Fill &amp; border</div>
-      <div className="prop-row">
-        <label>Background</label>
-        <input type="color" value={partStyle.bgColor || '#faf9f6'} onChange={(e) => updateItemPart(item.id, part, { bgColor: e.target.value })} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={partStyle.borderColor || '#262420'} onChange={(e) => updateItemPart(item.id, part, { borderColor: e.target.value })} />
-      </div>
+      <LinkableColorRow label="Background" theme={theme} value={partStyle.bgColor} onChange={(v) => updateItemPart(item.id, part, { bgColor: v })} />
+      <LinkableColorRow label="Border color" theme={theme} value={partStyle.borderColor} onChange={(v) => updateItemPart(item.id, part, { borderColor: v })} fallback="#262420" />
       <SliderRow label="Border width" min={0} max={6} value={partStyle.borderWidth || 0} onChange={(v) => updateItemPart(item.id, part, { borderWidth: v })} />
 
       <div className="panel__section-title">Typography</div>
-      <div className="prop-row">
-        <label>Text color</label>
-        <input type="color" value={partStyle.textColor || defaultColor} onChange={(e) => updateItemPart(item.id, part, { textColor: e.target.value })} />
-      </div>
+      <LinkableColorRow label="Text color" theme={theme} value={partStyle.textColor} onChange={(v) => updateItemPart(item.id, part, { textColor: v })} fallback={defaultColor} />
       <FontControls
         style={partStyle}
         onChange={(patch) => updateItemPart(item.id, part, patch)}
         defaultSize={partDefaultFontSize(def, part)}
+        theme={theme}
       />
 
       <AlignmentSection
@@ -338,7 +404,8 @@ function variantDefaultFontSize(variant) {
 }
 
 function ContentProperties({ items, pageAlignItem }) {
-  const { updateItems } = useEditor();
+  const { template, updateItems } = useEditor();
+  const theme = template.theme;
   const ids = items.map((i) => i.id);
   const first = items[0];
   // block/qr/label-value's own text lives in their sub-parts (styled via
@@ -399,14 +466,8 @@ function ContentProperties({ items, pageAlignItem }) {
           Logo/Signature/QR included, since their border/background live
           on this same outer frame (see CanvasItem.jsx's frameStyle). */}
       <div className="panel__section-title">Fill &amp; border</div>
-      <div className="prop-row">
-        <label>Background</label>
-        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
-      </div>
+      <LinkableColorRow label="Background" theme={theme} value={first.bgColor} onChange={(v) => updateItems(ids, () => ({ bgColor: v }))} />
+      <LinkableColorRow label="Border color" theme={theme} value={first.borderColor} onChange={(v) => updateItems(ids, () => ({ borderColor: v }))} fallback="#262420" />
       <SliderRow label="Border width" min={0} max={6} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
       {isLogo && (
         <div className="prop-row">
@@ -432,14 +493,12 @@ function ContentProperties({ items, pageAlignItem }) {
       {!hideTextControls && (
         <>
           <div className="panel__section-title">Typography</div>
-          <div className="prop-row">
-            <label>Text color</label>
-            <input type="color" value={first.textColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ textColor: e.target.value }))} />
-          </div>
+          <LinkableColorRow label="Text color" theme={theme} value={first.textColor} onChange={(v) => updateItems(ids, () => ({ textColor: v }))} fallback="#262420" />
           <FontControls
             style={first}
             onChange={(patch) => updateItems(ids, () => patch)}
             defaultSize={variantDefaultFontSize(firstVariant)}
+            theme={theme}
           />
         </>
       )}
@@ -589,8 +648,81 @@ function PageProperties() {
   );
 }
 
+// Prompt 28 item 4: template-level, not per-item — shown alongside the
+// page background (PageProperties) in the same "nothing selected" slot,
+// since both are whole-document settings rather than something any one
+// item owns. Editing any of these four values updates every item
+// currently linked to that slot immediately (CanvasItem re-resolves
+// `template.theme` on every render — see resolveItemTheme) with no
+// per-item action needed.
+function ThemePanel() {
+  const { template, updateTheme } = useEditor();
+  const theme = template.theme;
+  const headingFamily = fontFamilyById(theme.headingFont.family);
+  const bodyFamily = fontFamilyById(theme.bodyFont.family);
+
+  return (
+    <>
+      <div className="panel__section-title">Theme</div>
+      <div className="prop-row">
+        <label>Primary color</label>
+        <input type="color" value={theme.primaryColor} onChange={(e) => updateTheme({ primaryColor: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Secondary color</label>
+        <input type="color" value={theme.secondaryColor} onChange={(e) => updateTheme({ secondaryColor: e.target.value })} />
+      </div>
+      <div className="prop-row">
+        <label>Heading font</label>
+        <select
+          value={headingFamily.id}
+          onChange={(e) => {
+            const next = FONT_FAMILIES.find((f) => f.id === e.target.value);
+            const weight = next.weights.includes(theme.headingFont.weight) ? theme.headingFont.weight : next.weights[0];
+            updateTheme({ headingFont: { family: next.id, weight } });
+          }}
+        >
+          {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+      </div>
+      <div className="prop-row">
+        <label>Heading weight</label>
+        <select
+          value={theme.headingFont.weight}
+          onChange={(e) => updateTheme({ headingFont: { ...theme.headingFont, weight: Number(e.target.value) } })}
+        >
+          {headingFamily.weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
+        </select>
+      </div>
+      <div className="prop-row">
+        <label>Body font</label>
+        <select
+          value={bodyFamily.id}
+          onChange={(e) => {
+            const next = FONT_FAMILIES.find((f) => f.id === e.target.value);
+            const weight = next.weights.includes(theme.bodyFont.weight) ? theme.bodyFont.weight : next.weights[0];
+            updateTheme({ bodyFont: { family: next.id, weight } });
+          }}
+        >
+          {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+      </div>
+      <div className="prop-row">
+        <label>Body weight</label>
+        <select
+          value={theme.bodyFont.weight}
+          onChange={(e) => updateTheme({ bodyFont: { ...theme.bodyFont, weight: Number(e.target.value) } })}
+        >
+          {bodyFamily.weights.map((w) => <option key={w} value={w}>{FONT_WEIGHT_LABELS[w]}</option>)}
+        </select>
+      </div>
+    </>
+  );
+}
+
 function ShapeProperties({ items, pageAlignItem }) {
-  const { updateItems } = useEditor();
+  const { template, updateItems } = useEditor();
+  const theme = template.theme;
   const ids = items.map((i) => i.id);
   const first = items[0];
 
@@ -610,14 +742,8 @@ function ShapeProperties({ items, pageAlignItem }) {
       <SliderRow label="Rotation" min={-180} max={180} value={first.rotation} onChange={(v) => updateItems(ids, () => ({ rotation: v }))} />
 
       <div className="panel__section-title">Fill &amp; border</div>
-      <div className="prop-row">
-        <label>Fill</label>
-        <input type="color" value={first.fill} onChange={(e) => updateItems(ids, () => ({ fill: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={first.borderColor === 'transparent' ? '#000000' : first.borderColor} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
-      </div>
+      <LinkableColorRow label="Fill" theme={theme} value={first.fill} onChange={(v) => updateItems(ids, () => ({ fill: v }))} fallback="#7152F5" />
+      <LinkableColorRow label="Border color" theme={theme} value={first.borderColor} onChange={(v) => updateItems(ids, () => ({ borderColor: v }))} fallback="#262420" />
       <SliderRow label="Border width" min={0} max={8} value={first.borderWidth} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
       {first.type === 'roundedRect' && (
         <SliderRow label="Corner radius" min={0} max={60} value={first.radius} onChange={(v) => updateItems(ids, () => ({ radius: v }))} />
@@ -634,7 +760,8 @@ function ShapeProperties({ items, pageAlignItem }) {
 // page alignment. No Typography (no text at all) and no content-align
 // (nothing to align within the box — the picture just fills it).
 function ImageProperties({ items, pageAlignItem }) {
-  const { updateItems } = useEditor();
+  const { template, updateItems } = useEditor();
+  const theme = template.theme;
   const ids = items.map((i) => i.id);
   const first = items[0];
   const allUnlocked = items.every((i) => !i.locked);
@@ -659,14 +786,8 @@ function ImageProperties({ items, pageAlignItem }) {
       )}
 
       <div className="panel__section-title">Fill &amp; border</div>
-      <div className="prop-row">
-        <label>Background</label>
-        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
-      </div>
-      <div className="prop-row">
-        <label>Border color</label>
-        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
-      </div>
+      <LinkableColorRow label="Background" theme={theme} value={first.bgColor} onChange={(v) => updateItems(ids, () => ({ bgColor: v }))} />
+      <LinkableColorRow label="Border color" theme={theme} value={first.borderColor} onChange={(v) => updateItems(ids, () => ({ borderColor: v }))} fallback="#262420" />
       <SliderRow label="Border width" min={0} max={6} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
       <SliderRow label="Corner radius" min={0} max={24} value={first.cornerRadius ?? 0} onChange={(v) => updateItems(ids, () => ({ cornerRadius: v }))} />
 
@@ -685,11 +806,22 @@ function ImageProperties({ items, pageAlignItem }) {
 // out — it means different things per shape sub-type (roundedRect only)
 // and isn't "genuinely common" the way fill/border are.
 function MixedProperties({ items }) {
-  const { updateItems } = useEditor();
+  const { template, updateItems } = useEditor();
+  const theme = template.theme;
   const ids = items.map((i) => i.id);
   const first = items[0];
-  const firstBg = first.kind === 'shape' ? first.fill : first.bgColor;
-  const firstBorderColor = first.borderColor === 'transparent' ? '#000000' : first.borderColor || '#262420';
+  // Prompt 28: these two fields are resolved for DISPLAY (a linked value
+  // is an object — `<input type="color">` can't render that directly),
+  // but this control doesn't offer a link/custom toggle the way the
+  // single-kind panels do (a "mixed" resolved default across two
+  // different underlying fields, `fill` vs `bgColor`, isn't a clean fit
+  // for that pattern) — editing the swatch here always writes a literal,
+  // detaching whichever selected items were linked. A deliberate scope
+  // line for this already-simplified mixed-selection control, not an
+  // oversight.
+  const firstBgResolved = resolveColorValue(first.kind === 'shape' ? first.fill : first.bgColor, theme);
+  let firstBorderColor = resolveColorValue(first.borderColor, theme) || '#262420';
+  if (firstBorderColor === 'transparent') firstBorderColor = '#000000';
 
   return (
     <>
@@ -698,7 +830,7 @@ function MixedProperties({ items }) {
         <label>Fill / Background</label>
         <input
           type="color"
-          value={firstBg || '#faf9f6'}
+          value={firstBgResolved || '#faf9f6'}
           onChange={(e) => {
             const v = e.target.value;
             updateItems(ids, (item) => (item.kind === 'shape' ? { fill: v } : { bgColor: v }));
@@ -755,6 +887,7 @@ export default function PropertiesPanel() {
       )}
       {selectedItems.length === 0 && (
         <>
+          <ThemePanel />
           <PageProperties />
           <p className="empty-hint" style={{ marginTop: 14 }}>
             Select a content element or shape on the canvas to edit its style here.

@@ -32,6 +32,18 @@ export const createShape = (type, position = { x: 40, y: 40 }) => {
     naturalHeight: def.defaultSize.height,
     rotation: 0,
     ...def.defaultProps,
+    // Prompt 28 item 3: a new shape defaults to the theme's primary color
+    // (fill + border) rather than the catalog's own hardcoded editor-
+    // brand purple (`defaultProps.fill` above) — shapes start with no
+    // default template of their own to keep visually identical (the
+    // initial template has zero shapes), so linking them by default is a
+    // pure win for the "built entirely from defaults already looks
+    // cohesive" goal, not a regression risk the way some content-item
+    // defaults were (see elementCatalog.js's own comment on that).
+    // `borderWidth` stays at `defaultProps`' own 0, so the border link is
+    // invisible until a user actually turns a border on.
+    fill: { linked: 'primary' },
+    borderColor: { linked: 'primary' },
   };
 };
 

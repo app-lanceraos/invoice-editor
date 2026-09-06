@@ -909,6 +909,25 @@ body {
   padding: 4px 6px;
 }
 
+/* Prompt 28: the shared "linked to theme, or custom" control pattern — a
+   narrower select (leaving room for the swatch) paired with the color
+   input, disabled while linked (nudging a linked value isn't a local
+   edit — see LinkableColorRow's own comment). */
+.linked-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.linked-control__select {
+  width: 96px !important;
+}
+
+.linked-control input[type="color"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .prop-row input[type="checkbox"] {
   width: 16px; height: 16px;
   accent-color: var(--purple-500);
