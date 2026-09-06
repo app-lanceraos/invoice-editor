@@ -108,7 +108,7 @@ export default function GroupSelectionOverlay() {
   const footerTop = getFooterTop(template.items, template.page);
   const contentMembers = movableMembers.filter((m) => m.kind === 'content');
   const outsideContent = template.items
-    .filter((i) => i.kind === 'content' && !memberIdSet.has(i.id))
+    .filter((i) => i.kind === 'content' && !i.hidden && !memberIdSet.has(i.id))
     .map(withEffectiveSize);
   const bounds = contentMembers.length ? getItemBounds(contentMembers[0], template.page, footerTop) : null;
 

@@ -14,8 +14,21 @@ export default function CanvasLayer({ readOnly = false }) {
   const { template, selection, setSelection, guides, zoom } = useEditor();
   const [marquee, setMarquee] = useState(null); // {x,y,w,h} while dragging on empty canvas, in PAGE units
 
-  const shapes = template.items.filter((i) => i.kind === 'shape');
-  const contentItems = template.items.filter((i) => i.kind === 'content');
+  // Prompt 26 item 3: painted in a SINGLE pass, in `template.items`'s own
+  // array order (index 0 = back, last = front) — the shape-behind-content
+  // guarantee is no longer an artifact of two hardcoded render groups; it
+  // now comes entirely from EditorContext keeping that array order itself
+  // correct (see utils/zorder.js's normalizeZOrder, applied by every
+  // mutation that can change order or add items). This is what actually
+  // lets a future allowFreeLayering item interleave above content —
+  // painting two fixed groups back-to-front could never do that no
+  // matter what the array said.
+  // Prompt 26 item 1: hidden items are filtered out here — they don't
+  // render, aren't selectable (nothing to click), and (being absent from
+  // this same list) never appear in the rail-detection or marquee hit-
+  // test below either.
+  const visibleItems = template.items.filter((i) => !i.hidden);
+  const shapes = visibleItems.filter((i) => i.kind === 'shape');
 
   const startMarquee = (e) => {
     if (e.target !== e.currentTarget) return; // only start on empty canvas, not on an item
@@ -51,7 +64,7 @@ export default function CanvasLayer({ readOnly = false }) {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       if (currentBox) {
-        const hits = template.items.filter((i) => {
+        const hits = visibleItems.filter((i) => {
           return (
             i.x < currentBox.x + currentBox.w &&
             i.x + i.width > currentBox.x &&
@@ -77,10 +90,7 @@ export default function CanvasLayer({ readOnly = false }) {
 
   return (
     <div className="canvas-layer" onMouseDown={readOnly ? undefined : startMarquee}>
-      {shapes.map((item) => (
-        <CanvasItem key={item.id} item={item} readOnly={readOnly} />
-      ))}
-      {contentItems.map((item) => (
+      {visibleItems.map((item) => (
         <CanvasItem key={item.id} item={item} readOnly={readOnly} />
       ))}
 

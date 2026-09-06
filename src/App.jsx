@@ -4,6 +4,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import Toolbar from './components/Toolbar/Toolbar';
 import ElementLibraryPanel from './components/Panels/ElementLibraryPanel';
 import ShapeLibraryPanel from './components/Panels/ShapeLibraryPanel';
+import LayersPanel from './components/Panels/LayersPanel';
 import PropertiesPanel from './components/Panels/PropertiesPanel';
 import EditorCanvas from './components/Canvas/EditorCanvas';
 import PreviewModal from './components/PreviewModal';
@@ -68,6 +69,8 @@ function EditorShell() {
                 <ElementLibraryPanel />
                 <div style={{ height: 1, background: 'var(--border-glass)', margin: '16px 0' }} />
                 <ShapeLibraryPanel />
+                <div style={{ height: 1, background: 'var(--border-glass)', margin: '16px 0' }} />
+                <LayersPanel />
               </div>
             </>
           )}

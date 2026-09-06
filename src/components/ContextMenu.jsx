@@ -32,6 +32,7 @@ export default function ContextMenu() {
   const {
     template, selection, setSelection, contextMenu, setContextMenu,
     duplicateItems, deleteItems, canDeleteSelection, updateItems, updateItemPart, groupItems,
+    moveSelectionZ,
   } = useEditor();
 
   const close = () => setContextMenu(null);
@@ -127,6 +128,19 @@ export default function ContextMenu() {
   }
   if (canGroup) {
     actions.push({ key: 'group', label: 'Group', run: () => groupItems(selection.ids) });
+  }
+  // Prompt 26 item 2: z-order actions, available for any non-empty
+  // selection regardless of lock state (locking blocks
+  // move/resize/rotate/delete/duplicate, not stacking order — a locked
+  // item can still be brought forward/back). moveSelectionZ itself
+  // enforces the shape-behind-content rule (see EditorContext/utils/
+  // zorder.js) and surfaces the "clamped" feedback via zOrderClamped —
+  // this menu doesn't need its own copy of that logic.
+  if (selectedItems.length > 0) {
+    actions.push({ key: 'bring-front', label: 'Bring to Front', run: () => moveSelectionZ(selection.ids, 'front') });
+    actions.push({ key: 'bring-forward', label: 'Bring Forward', run: () => moveSelectionZ(selection.ids, 'forward') });
+    actions.push({ key: 'send-backward', label: 'Send Backward', run: () => moveSelectionZ(selection.ids, 'backward') });
+    actions.push({ key: 'send-back', label: 'Send to Back', run: () => moveSelectionZ(selection.ids, 'back') });
   }
   if (canDelete) {
     actions.push({ key: 'delete', label: 'Delete', run: () => deleteItems(selection.ids) });

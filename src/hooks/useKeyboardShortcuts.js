@@ -28,7 +28,9 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       // widen — Prompt 2 predates the unified item model entirely).
       if (mod && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        setSelection({ ids: template.items.map((i) => i.id), part: null });
+        // Prompt 26 item 1: a hidden item isn't rendered/selectable on
+        // canvas at all — select-all shouldn't silently include it either.
+        setSelection({ ids: template.items.filter((i) => !i.hidden).map((i) => i.id), part: null });
         return;
       }
 

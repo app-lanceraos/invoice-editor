@@ -733,7 +733,11 @@ export default function CanvasItem({ item, readOnly = false }) {
     // every raw screen-pixel mouse delta below gets divided by this
     // before it ever touches a page-unit coordinate.
     const scale = zoom / 100;
-    const others = template.items.filter((i) => i.id !== item.id);
+    // Prompt 26 item 1: hidden items are excluded from both the guide/
+    // snap candidates derived below AND the collision-neighbor list built
+    // from this same `others` — nothing to align to or collide with if
+    // it isn't rendered.
+    const others = template.items.filter((i) => i.id !== item.id && !i.hidden);
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
     // Prompt 19: the guide-eligible candidates (other items' edges/
     // centers + the page's own center, item 1) plus the page/footer
@@ -915,7 +919,7 @@ export default function CanvasItem({ item, readOnly = false }) {
 
     const contentMembers = groupMembers.filter((m) => m.kind === 'content');
     const outsideContent = template.items
-      .filter((i) => i.kind === 'content' && !groupIdSet.has(i.id))
+      .filter((i) => i.kind === 'content' && !i.hidden && !groupIdSet.has(i.id))
       .map(withEffectiveSize);
     const bounds = contentMembers.length ? getItemBounds(contentMembers[0], template.page, footerTop) : null;
 
@@ -950,7 +954,7 @@ export default function CanvasItem({ item, readOnly = false }) {
       width: Math.max(...guideBoxes.map((b) => b.maxX)) - Math.min(...guideBoxes.map((b) => b.minX)),
       height: Math.max(...guideBoxes.map((b) => b.maxY)) - Math.min(...guideBoxes.map((b) => b.minY)),
     };
-    const othersForGuides = template.items.filter((i) => !groupIdSet.has(i.id));
+    const othersForGuides = template.items.filter((i) => !groupIdSet.has(i.id) && !i.hidden);
     const groupXCandidates = alignmentCandidates('x', othersForGuides, template.page);
     const groupYCandidates = alignmentCandidates('y', othersForGuides, template.page);
     let stickyX = false;
@@ -1106,7 +1110,11 @@ export default function CanvasItem({ item, readOnly = false }) {
     const startMouse = { x: e.clientX, y: e.clientY };
     const scale = zoom / 100; // Prompt 22 — see beginMove's own comment
     const bounds = getItemBounds(item, template.page, getFooterTop(template.items, template.page));
-    const others = template.items.filter((i) => i.id !== item.id);
+    // Prompt 26 item 1: hidden items are excluded from both the guide/
+    // snap candidates derived below AND the collision-neighbor list built
+    // from this same `others` — nothing to align to or collide with if
+    // it isn't rendered.
+    const others = template.items.filter((i) => i.id !== item.id && !i.hidden);
     // Prompt 19: same candidate set a move drag snaps against — every
     // other item's edges/centers, the page's own center (item 1), and
     // the page/footer boundary (silent — see resolveAxisSnap) — a
@@ -1531,7 +1539,7 @@ export default function CanvasItem({ item, readOnly = false }) {
         // no-neighbor fallback, so this reuses the exact same call).
         const clearance =
           rotation === 0
-            ? edgeClearance(item, template.items.filter((i) => i.id !== item.id).map(withEffectiveSize))
+            ? edgeClearance(item, template.items.filter((i) => i.id !== item.id && !i.hidden).map(withEffectiveSize))
             : { left: Infinity, right: Infinity, top: Infinity, bottom: Infinity };
         return (
           <>

@@ -175,7 +175,7 @@ function PageAlignButtons({ item }) {
       return eff ? { ...o, width: eff.width, height: eff.height } : o;
     };
     const neighbors = template.items
-      .filter((i) => i.id !== item.id && i.kind === 'content')
+      .filter((i) => i.id !== item.id && i.kind === 'content' && !i.hidden)
       .map(withEffectiveSize);
     const resolved = resolveMoveCollision(
       { x: item.x, y: item.y },

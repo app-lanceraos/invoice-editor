@@ -3,6 +3,7 @@ import { historyReducer, initialHistoryState } from './historyReducer';
 import { ELEMENT_TYPES, createContentItem } from '../data/elementCatalog';
 import { createShape, detectRail } from '../data/shapeCatalog';
 import { validateTemplate } from '../utils/validation';
+import { normalizeZOrder, appendRespectingZOrder, stepSelectionOnce } from '../utils/zorder';
 
 const EditorStateContext = createContext(null);
 
@@ -83,6 +84,19 @@ export function EditorProvider({ children }) {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const toggleLeftPanel = useCallback(() => setLeftPanelCollapsed((v) => !v), []);
   const toggleRightPanel = useCallback(() => setRightPanelCollapsed((v) => !v), []);
+  // Prompt 26 item 3: transient (not history) feedback that a requested
+  // z-order change (drag-reorder in the layers panel, or a front/forward/
+  // backward/back action from anywhere) got clamped by the shape-behind-
+  // content rule — surfaced by LayersPanel regardless of which surface
+  // triggered the reorder, so the rule reads as deliberate, not a bug,
+  // no matter how the user tried to violate it. Auto-clears itself.
+  const [zOrderClamped, setZOrderClampedRaw] = useState(false);
+  const zOrderClampTimeout = useRef(null);
+  const flagZOrderClamped = useCallback(() => {
+    setZOrderClampedRaw(true);
+    if (zOrderClampTimeout.current) clearTimeout(zOrderClampTimeout.current);
+    zOrderClampTimeout.current = setTimeout(() => setZOrderClampedRaw(false), 2200);
+  }, []);
 
   const template = history.present;
 
@@ -111,6 +125,11 @@ export function EditorProvider({ children }) {
         if (def.required) return; // required elements can't be removed entirely
         commit({ ...template, items: template.items.filter((i) => !existing.includes(i)) });
       } else {
+        // Content always appends at the very end (top of the whole
+        // stack) — never violates the shape/content rule (content is
+        // never below anything by default), so a plain append is
+        // already correct; appendRespectingZOrder would do the same
+        // thing here, just with an unnecessary extra pass.
         commit({ ...template, items: [...template.items, createContentItem(type)] });
       }
     },
@@ -249,7 +268,13 @@ export function EditorProvider({ children }) {
         x: i.x + 16,
         y: i.y + 16,
       }));
-      commit({ ...template, items: [...template.items, ...copies] });
+      // Prompt 26: a plain append would land these AFTER any existing
+      // content in the array, i.e. rendered ON TOP of it — appending at
+      // the literal end stopped being safe once render order became the
+      // real array order (Prompt 26 item 3) rather than a hardcoded
+      // shapes-then-content split. This inserts them just above the
+      // other shapes instead, same as `addShape` below.
+      commit({ ...template, items: appendRespectingZOrder(template.items, copies) });
       setSelection({ ids: copies.map((c) => c.id), part: null });
     },
     [template, commit]
@@ -278,7 +303,9 @@ export function EditorProvider({ children }) {
         x: itemData.x + 16,
         y: itemData.y + 16,
       }));
-      commit({ ...template, items: [...template.items, ...pasted] });
+      // Prompt 26: see duplicateItems' own comment — pasted shapes need
+      // the same z-order-respecting insertion, not a plain end-append.
+      commit({ ...template, items: appendRespectingZOrder(template.items, pasted) });
       setSelection({ ids: pasted.map((p) => p.id), part: null });
     },
     [template, commit]
@@ -289,10 +316,105 @@ export function EditorProvider({ children }) {
   const addShape = useCallback(
     (type) => {
       const shape = createShape(type);
-      commit({ ...template, items: [...template.items, shape] });
+      // Prompt 26: inserted just below existing content (never a plain
+      // end-append — see appendRespectingZOrder's own comment) so a new
+      // shape can never accidentally render on top of content just
+      // because array order is now genuine paint order.
+      commit({ ...template, items: appendRespectingZOrder(template.items, [shape]) });
       setSelection({ ids: [shape.id], part: null });
     },
     [template, commit]
+  );
+
+  // Prompt 26 item 2/3: moves the current SELECTION's stacking position.
+  // `direction` is 'front' | 'back' | 'forward' | 'backward'. Always
+  // computes the naive requested reorder first, then runs it through
+  // normalizeZOrder before committing — a single shared enforcement point
+  // (rather than each direction having its own bespoke clamping logic)
+  // that also means the caller can tell whether the rule actually kicked
+  // in (the boolean return — see LayersPanel/ContextMenu) by comparing
+  // the requested vs. normalized order.
+  const moveSelectionZ = useCallback(
+    (ids, direction) => {
+      if (!ids || ids.length === 0) return false;
+      let requested;
+      if (direction === 'front') {
+        requested = [
+          ...template.items.filter((i) => !ids.includes(i.id)),
+          ...template.items.filter((i) => ids.includes(i.id)),
+        ];
+      } else if (direction === 'back') {
+        requested = [
+          ...template.items.filter((i) => ids.includes(i.id)),
+          ...template.items.filter((i) => !ids.includes(i.id)),
+        ];
+      } else if (direction === 'forward') {
+        requested = stepSelectionOnce(template.items, ids, 1);
+      } else if (direction === 'backward') {
+        requested = stepSelectionOnce(template.items, ids, -1);
+      } else {
+        return false;
+      }
+      const normalized = normalizeZOrder(requested);
+      const wasClamped = normalized.some((item, i) => item !== requested[i]);
+      if (wasClamped) flagZOrderClamped();
+      commit({ ...template, items: normalized });
+      return wasClamped;
+    },
+    [template, commit, flagZOrderClamped]
+  );
+
+  // Prompt 26 item 2: applies a full drag-to-reorder from the layers
+  // panel — `backToFrontIds` is the COMPLETE desired item order (every
+  // id, not just the moved one), already translated from whatever
+  // front-first order the panel displays. Same normalize-then-commit
+  // shape as moveSelectionZ, and the same reasoning for returning
+  // whether it was clamped.
+  const reorderItems = useCallback(
+    (backToFrontIds) => {
+      const requested = backToFrontIds.map((id) => itemsById.get(id)).filter(Boolean);
+      if (requested.length !== template.items.length) return false; // stale ids — refuse rather than silently drop items
+      const normalized = normalizeZOrder(requested);
+      const wasClamped = normalized.some((item, i) => item !== requested[i]);
+      if (wasClamped) flagZOrderClamped();
+      commit({ ...template, items: normalized });
+      return wasClamped;
+    },
+    [template, commit, itemsById, flagZOrderClamped]
+  );
+
+  // Prompt 26 item 1: locked/hidden are now settable on ANY item via the
+  // layers panel (previously only ever set once, hardcoded, on the
+  // footer at creation) — every OTHER place that already checks
+  // `item.locked` (move/resize/rotate/delete/duplicate/group eligibility)
+  // was already written generically, so toggling it here is the entire
+  // fix for "locked reachable on any item," no other code needed to
+  // change. Hiding also drops the item from selection — a hidden item
+  // isn't rendered/selectable on canvas, so leaving it "selected" behind
+  // the scenes would show its properties for something invisible.
+  const toggleItemLocked = useCallback(
+    (id) => {
+      const item = itemsById.get(id);
+      if (!item) return;
+      updateItem(id, { locked: !item.locked });
+    },
+    [itemsById, updateItem]
+  );
+
+  const toggleItemHidden = useCallback(
+    (id) => {
+      const item = itemsById.get(id);
+      if (!item) return;
+      const hidden = !item.hidden;
+      updateItem(id, { hidden });
+      if (hidden) {
+        setSelection((prev) => ({
+          ids: prev.ids.filter((i) => i !== id),
+          part: prev.part && prev.part.id === id ? null : prev.part,
+        }));
+      }
+    },
+    [itemsById, updateItem]
   );
 
   const groupItems = useCallback(
@@ -328,7 +450,7 @@ export function EditorProvider({ children }) {
   const railInsets = useMemo(() => {
     const insets = { top: 0, bottom: 0, left: 0, right: 0 };
     template.items.forEach((item) => {
-      if (item.kind !== 'shape') return;
+      if (item.kind !== 'shape' || item.hidden) return;
       const rail = detectRail(item, template.page);
       if (rail) insets[rail.edge] = Math.max(insets[rail.edge], rail.thickness);
     });
@@ -371,6 +493,7 @@ export function EditorProvider({ children }) {
     toggleLeftPanel,
     rightPanelCollapsed,
     toggleRightPanel,
+    zOrderClamped,
     toggleContentItem,
     updateItem,
     updateItems,
@@ -382,6 +505,10 @@ export function EditorProvider({ children }) {
     duplicateItems,
     addItemsFromClipboard,
     addShape,
+    moveSelectionZ,
+    reorderItems,
+    toggleItemLocked,
+    toggleItemHidden,
     groupItems,
     ungroupItems,
     updatePageBackground,
