@@ -3,6 +3,30 @@ import { useEditor } from '../state/EditorContext';
 import { copyToClipboard, readClipboard } from '../state/clipboard';
 import { loadImageFile } from '../utils/imageFile';
 
+// Prompt 30 item 5 guarded shortcuts behind "is the user typing?", but
+// answered it with `tagName === 'INPUT'` — which is true of plenty of
+// controls that swallow no keystrokes of their own. A native
+// `<input type="range">` in particular KEEPS focus after a drag ends, so
+// once you touched a slider, every later Ctrl+Z was silently discarded
+// until you clicked elsewhere. Prompt 34 item 2: ask the narrower, real
+// question instead — is the focused element somewhere text is being
+// entered? — so range/checkbox/radio/color/file inputs and focusable
+// buttons (color swatches, toggles) all keep the shortcuts working, while
+// genuine text entry (including the number half of a slider row) still
+// wins. `contenteditable` counts too: canvas text is edited in place.
+const TEXT_ENTRY_TYPES = new Set([
+  'text', 'number', 'search', 'email', 'url', 'tel', 'password', 'date', 'time', 'datetime-local', 'month', 'week',
+]);
+
+function isTextEntry(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === 'TEXTAREA') return true;
+  if (tag === 'INPUT') return TEXT_ENTRY_TYPES.has(el.type);
+  return false;
+}
+
 export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   const {
     template, selection, setSelection,
@@ -14,8 +38,7 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   useEffect(() => {
     const handler = (e) => {
       const mod = e.metaKey || e.ctrlKey;
-      const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return; // don't hijack typing in property fields
+      if (isTextEntry(document.activeElement)) return; // don't hijack typing in property fields
 
       if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
       if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
@@ -118,8 +141,7 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   // the two coexist because each only ever acts on the case it owns.
   useEffect(() => {
     const handlePaste = (e) => {
-      const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (isTextEntry(document.activeElement)) return; // same narrowed guard as the keydown handler
       const items = e.clipboardData?.items;
       if (!items) return;
       const imageItem = Array.from(items).find((it) => it.type?.startsWith('image/'));

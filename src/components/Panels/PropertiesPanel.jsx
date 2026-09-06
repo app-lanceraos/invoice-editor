@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useEditor } from '../../state/EditorContext';
 import { ELEMENT_TYPES } from '../../data/elementCatalog';
 import { getItemBounds, getFooterTop, resolveMoveCollision } from '../../utils/geometry';
@@ -105,17 +105,52 @@ const LOGO_SHAPE_OPTIONS = [['square', 'Square'], ['rounded', 'Rounded'], ['circ
 // slider, both drive the same `onChange`. Used everywhere a px-valued
 // slider exists (border width, corner radius, cell padding, ...); NOT used
 // for rotation (degrees, not px — out of this control's scope).
+// Prompt 33 item 2: dragging the range thumb must produce exactly ONE undo
+// step per gesture, same rule move/resize/rotate/column-divider already
+// follow (see CanvasItem.jsx) — local `dragValue` preview state while the
+// thumb moves, a single `onChange` (the real commit) on release. The
+// paired number input isn't a drag gesture, so it keeps committing
+// immediately.
 function SliderRow({ label, min, max, step = 1, value, onChange }) {
-  const handle = (e) => {
+  const [dragValue, setDragValue] = useState(null);
+  const displayValue = dragValue !== null ? dragValue : value;
+
+  const previewRange = (e) => {
     const v = Number(e.target.value);
-    if (!Number.isNaN(v)) onChange(v);
+    if (!Number.isNaN(v)) setDragValue(v);
   };
+  // Prompt 34 item 1: a gesture that ENDS on the value it started at must
+  // not write history at all. Committing unconditionally on every release
+  // stacked identical snapshots — a click that never moved the thumb, a
+  // drag that wandered back to its starting value, and (worst) any keyup
+  // at all while the slider still held focus, including the `keyup` half
+  // of the very Ctrl+Z the user was pressing to undo. Each one added an
+  // Undo step that visibly does nothing, which is what made a single drag
+  // look like it needed 8-10 presses to unwind.
+  const commitIfChanged = (v) => {
+    if (!Number.isNaN(v) && v !== Number(value)) onChange(v);
+  };
+  const commitRange = (e) => {
+    setDragValue(null);
+    commitIfChanged(Number(e.target.value));
+  };
+  const handleNumber = (e) => commitIfChanged(Number(e.target.value));
   return (
     <div className="prop-row">
       <label>{label}</label>
       <div className="slider-with-input">
-        <input type="range" min={min} max={max} step={step} value={value} onChange={handle} />
-        <input type="number" min={min} max={max} step={step} value={value} onChange={handle} />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={displayValue}
+          onChange={previewRange}
+          onMouseUp={commitRange}
+          onTouchEnd={commitRange}
+          onKeyUp={commitRange}
+        />
+        <input type="number" min={min} max={max} step={step} value={value} onChange={handleNumber} />
       </div>
     </div>
   );

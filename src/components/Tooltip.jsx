@@ -23,8 +23,10 @@ const SHOW_DELAY = 400;
 export default function Tooltip({ label, children, placement = 'top', className }) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState(null);
+  const [resolvedPlacement, setResolvedPlacement] = useState(placement);
   const timeoutRef = useRef(null);
   const triggerRef = useRef(null);
+  const tooltipRef = useRef(null);
 
   const scheduleShow = () => {
     clearTimeout(timeoutRef.current);
@@ -41,11 +43,49 @@ export default function Tooltip({ label, children, placement = 'top', className 
   useLayoutEffect(() => {
     if (!visible || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
+    setResolvedPlacement(placement);
     setCoords({
       left: rect.left + rect.width / 2,
       top: placement === 'top' ? rect.top - 6 : rect.bottom + 6,
     });
   }, [visible, placement]);
+
+  // Prompt 33 item 1: the coords above assume enough room on the trigger's
+  // preferred side/edge. Once the popup is actually in the DOM (so we can
+  // measure its real size), check it against the viewport and flip
+  // vertically or clamp horizontally when it would render off-screen —
+  // e.g. the collapsed-sidebar toggles sitting right at the browser edge.
+  // Runs again after any adjustment, but converges immediately since a
+  // corrected position no longer trips the same overflow check.
+  useLayoutEffect(() => {
+    if (!visible || !coords || !tooltipRef.current || !triggerRef.current) return;
+    const triggerRect = triggerRef.current.getBoundingClientRect();
+    const tipRect = tooltipRef.current.getBoundingClientRect();
+    const margin = 8;
+
+    let nextPlacement = resolvedPlacement;
+    let nextTop = coords.top;
+    if (nextPlacement === 'top' && tipRect.top < margin) {
+      nextPlacement = 'bottom';
+      nextTop = triggerRect.bottom + 6;
+    } else if (nextPlacement === 'bottom' && tipRect.bottom > window.innerHeight - margin) {
+      nextPlacement = 'top';
+      nextTop = triggerRect.top - 6;
+    }
+
+    let nextLeft = coords.left;
+    const halfWidth = tipRect.width / 2;
+    if (nextLeft - halfWidth < margin) {
+      nextLeft = halfWidth + margin;
+    } else if (nextLeft + halfWidth > window.innerWidth - margin) {
+      nextLeft = window.innerWidth - margin - halfWidth;
+    }
+
+    if (nextPlacement !== resolvedPlacement || nextTop !== coords.top || nextLeft !== coords.left) {
+      setResolvedPlacement(nextPlacement);
+      setCoords({ left: nextLeft, top: nextTop });
+    }
+  }, [visible, coords, resolvedPlacement]);
 
   if (!label) return children;
 
@@ -63,7 +103,8 @@ export default function Tooltip({ label, children, placement = 'top', className 
         coords &&
         createPortal(
           <span
-            className={`tooltip tooltip--portal tooltip--${placement}`}
+            ref={tooltipRef}
+            className={`tooltip tooltip--portal tooltip--${resolvedPlacement}`}
             role="tooltip"
             style={{ left: coords.left, top: coords.top }}
           >
