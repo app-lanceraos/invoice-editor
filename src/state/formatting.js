@@ -14,6 +14,13 @@ const KEY = 'invoice-editor:format-clipboard';
 const TEXT_STYLE_KEYS = ['textColor', 'bgColor', 'borderColor', 'borderWidth', 'fontFamily', 'fontWeight', 'fontSize', 'contentAlign'];
 const WHOLE_ITEM_ONLY_KEYS = ['cornerRadius', 'contentAlignY'];
 const SHAPE_KEYS = ['fill', 'borderColor', 'borderWidth', 'radius'];
+// Prompt 27: `image` styles its frame like a content item (bgColor/
+// borderColor/borderWidth/cornerRadius — see CanvasItem's frameStyle),
+// but has none of a content item's text/alignment fields — a dedicated
+// key list rather than falling through the generic content-item path
+// keeps copy/paste formatting from writing dead textColor/font/
+// contentAlign fields onto it that its own rendering never reads.
+const IMAGE_KEYS = ['bgColor', 'borderColor', 'borderWidth', 'cornerRadius'];
 const TABLE_KEYS = ['headerBg', 'headerTextColor', 'headerFontWeight', 'headerFontSize', 'rowBorderColor', 'rowBorderWidth', 'altRowShading', 'altRowColor', 'cellPadding', 'columnAlign'];
 const FOOTER_KEYS = ['dividerColor'];
 
@@ -57,6 +64,10 @@ export function captureFormatting(item, part) {
     SHAPE_KEYS.forEach((k) => { if (item[k] !== undefined) style[k] = item[k]; });
     return style;
   }
+  if (item.kind === 'image') {
+    IMAGE_KEYS.forEach((k) => { if (item[k] !== undefined) style[k] = item[k]; });
+    return style;
+  }
   const def = ELEMENT_TYPES[item.type];
   const keys = [...TEXT_STYLE_KEYS, ...WHOLE_ITEM_ONLY_KEYS];
   if (def?.variant === 'table') keys.push(...TABLE_KEYS);
@@ -74,6 +85,9 @@ function applicableKeys(target, part) {
   if (part) return new Set(TEXT_STYLE_KEYS);
   if (target.kind === 'shape') {
     return new Set(target.type === 'roundedRect' ? SHAPE_KEYS : SHAPE_KEYS.filter((k) => k !== 'radius'));
+  }
+  if (target.kind === 'image') {
+    return new Set(IMAGE_KEYS);
   }
   const def = ELEMENT_TYPES[target.type];
   const variant = def?.variant;

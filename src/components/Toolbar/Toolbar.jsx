@@ -39,10 +39,12 @@ export default function Toolbar({ onPreview }) {
   // duplicated — reflect that in the button's own enabled state (rather
   // than leaving it clickable-but-a-no-op) the same way ContextMenu's
   // equivalent check does; a mixed shape+content selection still enables
-  // it, since duplicateItems already only acts on the shape(s) in it.
+  // it, since duplicateItems already only acts on the shape(s)/image(s)
+  // in it. Prompt 27: `image` is shape-like here too (freely
+  // multipliable, no single-instance rule).
   const canDuplicate = selection.ids.some((id) => {
     const item = template.items.find((i) => i.id === id);
-    return item && item.kind === 'shape' && !item.locked;
+    return item && (item.kind === 'shape' || item.kind === 'image') && !item.locked;
   });
 
   const handleDelete = () => {

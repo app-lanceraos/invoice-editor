@@ -318,9 +318,10 @@ body {
   border-radius: 2px;
 }
 
-/* Shapes vs content, visually distinguishable at a glance (Prompt 26
-   item 2) — a filled square for a shape (matches the shape-swatch
-   convention above), a purple dot for content. */
+/* Shapes vs content vs image, visually distinguishable at a glance
+   (Prompt 26 item 2, extended for Prompt 27's third kind) — a filled
+   square for a shape (matches the shape-swatch convention above), a
+   purple dot for content, a diamond for an uploaded image. */
 .layer-row__kind--shape {
   background: var(--purple-300);
   border-radius: 2px;
@@ -329,6 +330,12 @@ body {
 .layer-row__kind--content {
   background: var(--purple-500);
   border-radius: 50%;
+}
+
+.layer-row__kind--image {
+  background: var(--warning);
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
 
 .layer-row__label {
@@ -394,6 +401,28 @@ body {
 .shape-swatch--rect { border-radius: 5px; }
 .shape-swatch--ellipse { border-radius: 50%; }
 .shape-swatch--line { height: 3px; border-radius: 2px; margin: 8px 0; }
+
+/* Prompt 27: the "Upload image" action's own swatch — a simple
+   picture-frame glyph rather than the flat color chip the primitive
+   shapes use, so it reads as "bring your own asset" rather than "add a
+   colored rectangle." */
+.shape-swatch--image {
+  background: transparent;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  position: relative;
+  color: var(--purple-300);
+}
+.shape-swatch--image::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 
 /* ---------- Canvas ---------- */
 
@@ -565,6 +594,30 @@ body {
 .item__image-interaction {
   position: absolute;
   inset: 0;
+}
+
+/* Prompt 27 item 3: a small always-on-top badge (never clipped by the
+   frame's own overflow:hidden `.item__scale`, since it's a sibling of
+   that wrapper, not a child of it) — deliberately plain/unstyled-by-
+   rotation positioning (top-right of the unrotated frame) so it stays
+   legible even when the item itself is rotated. */
+.item__pixelation-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 4;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--warning);
+  color: #262420;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px white;
 }
 
 .item__divider {

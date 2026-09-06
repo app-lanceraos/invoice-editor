@@ -5,25 +5,42 @@ import { SHAPE_TYPES } from '../../data/shapeCatalog';
 
 // Prompt 26 item 2: every item's display label — the catalog's own name
 // for content (single-instance per type, so it's already unambiguous),
-// disambiguated with a running number for shapes only, since a page can
-// have several of the same shape type. Numbering is stable against the
-// item's own position among same-type peers in `template.items` (back-
-// to-front array order), not against however the panel currently
-// displays them — reordering unrelated items never renumbers a shape.
+// disambiguated with a running number for shapes/images (a page can have
+// several of the same shape type, or several uploaded pictures — Prompt
+// 27). Numbering is stable against the item's own position among same-
+// group peers in `template.items` (back-to-front array order), not
+// against however the panel currently displays them — reordering
+// unrelated items never renumbers a shape or image.
+function baseLabel(item) {
+  if (item.kind === 'shape') return SHAPE_TYPES[item.type]?.label || item.type;
+  if (item.kind === 'image') return 'Image';
+  return ELEMENT_TYPES[item.type]?.label || item.type;
+}
+
+// A grouping key for the "how many of this exact thing exist" count —
+// every image shares one group ('image', no per-type split the way
+// shapes have roundedRect/ellipse/line), a shape groups by its own type.
+function numberingGroup(item) {
+  if (item.kind === 'shape') return `shape:${item.type}`;
+  if (item.kind === 'image') return 'image';
+  return null; // content: never numbered, single-instance per type already
+}
+
 function computeLabels(items) {
-  const totalByType = {};
+  const totalByGroup = {};
   items.forEach((item) => {
-    if (item.kind === 'shape') totalByType[item.type] = (totalByType[item.type] || 0) + 1;
+    const g = numberingGroup(item);
+    if (g) totalByGroup[g] = (totalByGroup[g] || 0) + 1;
   });
-  const runningByType = {};
+  const runningByGroup = {};
   const labels = new Map();
   items.forEach((item) => {
-    if (item.kind === 'shape') {
-      const def = SHAPE_TYPES[item.type];
-      runningByType[item.type] = (runningByType[item.type] || 0) + 1;
-      labels.set(item.id, totalByType[item.type] > 1 ? `${def.label} ${runningByType[item.type]}` : def.label);
+    const g = numberingGroup(item);
+    if (g) {
+      runningByGroup[g] = (runningByGroup[g] || 0) + 1;
+      labels.set(item.id, totalByGroup[g] > 1 ? `${baseLabel(item)} ${runningByGroup[g]}` : baseLabel(item));
     } else {
-      labels.set(item.id, ELEMENT_TYPES[item.type]?.label || item.type);
+      labels.set(item.id, baseLabel(item));
     }
   });
   return labels;

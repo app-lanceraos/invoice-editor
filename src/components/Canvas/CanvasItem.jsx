@@ -517,6 +517,41 @@ function ShapeBody({ item }) {
   );
 }
 
+// Prompt 27: a user-provided image (not catalog-driven the way Logo/
+// Signature are — no ELEMENT_TYPES entry, just a raw data URL on the
+// item itself). Reuses the exact same `.item__image-wrap`/`.item__image-
+// interaction` pattern Logo/Signature already established (Prompt 16
+// item 5): the real `<img>` never receives pointer events, so it can
+// never be hijacked by the browser's own native "drag this image out"
+// gesture — a transparent full-box layer on top is what actually
+// receives the click/drag, bubbling to this frame's own onMouseDown
+// (beginMove) exactly like every other item's empty space does.
+function ImageBody({ item }) {
+  return (
+    <div className="item__image-wrap">
+      <img
+        src={item.dataUrl}
+        alt=""
+        draggable={false}
+        className="item__image-placeholder"
+        style={{ objectFit: 'contain', pointerEvents: 'none' }}
+      />
+      <div className="item__image-interaction" />
+    </div>
+  );
+}
+
+// Prompt 27 item 3: how far past its own true pixel resolution an image
+// can be stretched before it's likely to look visibly soft/pixelated —
+// checked per axis (a non-uniform resize can over-stretch just one
+// dimension) against `item.sourceWidth/Height` (captured once at upload,
+// never touched again — see EditorContext's addImageItem).
+const PIXELATION_THRESHOLD = 1.5;
+function isImagePixelated(item, width, height) {
+  if (!item.sourceWidth || !item.sourceHeight) return false;
+  return width / item.sourceWidth > PIXELATION_THRESHOLD || height / item.sourceHeight > PIXELATION_THRESHOLD;
+}
+
 export const RotateIcon = (
   <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
     <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
@@ -1379,8 +1414,13 @@ export default function CanvasItem({ item, readOnly = false }) {
   // cornerRadius here when set — same frame field, so the selection
   // outline (`border-radius: inherit`) stays in sync either way.
   const logoRadius = item.kind === 'content' ? logoMaskRadius(item) : null;
+  // Prompt 27: a top-level `image` item styles its frame exactly like a
+  // content item (background/border/corner-radius on `bgColor`/
+  // `borderColor`/`borderWidth`/`cornerRadius`) — it just has no
+  // ELEMENT_TYPES entry to drive a logo mask, text color, etc., so
+  // `logoRadius` (content-only) is correctly always null for it.
   const frameStyle =
-    item.kind === 'content'
+    item.kind === 'content' || item.kind === 'image'
       ? {
           borderRadius: logoRadius !== null ? logoRadius : item.cornerRadius ?? 0,
           borderColor: item.borderColor,
@@ -1456,6 +1496,8 @@ export default function CanvasItem({ item, readOnly = false }) {
       >
         {item.kind === 'shape' ? (
           <ShapeBody item={item} />
+        ) : item.kind === 'image' ? (
+          <ImageBody item={item} />
         ) : (
           <ContentBody
             item={current}
@@ -1468,6 +1510,19 @@ export default function CanvasItem({ item, readOnly = false }) {
           />
         )}
       </div>
+
+      {/* Prompt 27 item 3: live pixelation warning — `current.width/
+          height` (not the stale stored `item.width/height`) so this
+          updates every frame during an active resize gesture, not just
+          once at creation, and clears itself the instant the box is
+          resized back down under the threshold. Editor-only (never
+          shown in readOnly Preview — that's a genuine render, not an
+          editing affordance). */}
+      {!readOnly && item.kind === 'image' && isImagePixelated(item, current.width, current.height) && (
+        <div className="item__pixelation-badge" title="This image may look pixelated at its current size">
+          ⚠
+        </div>
+      )}
 
       {isTextVariant && (
         <>

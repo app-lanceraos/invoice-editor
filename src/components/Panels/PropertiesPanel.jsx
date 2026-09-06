@@ -628,6 +628,53 @@ function ShapeProperties({ items, pageAlignItem }) {
   );
 }
 
+// Prompt 27: an `image` item's panel — Position/Size/Rotation (same
+// pattern content items got in Prompt 24) + Fill/Border/Radius (styled
+// exactly like a content item's frame — see CanvasItem's frameStyle) +
+// page alignment. No Typography (no text at all) and no content-align
+// (nothing to align within the box — the picture just fills it).
+function ImageProperties({ items, pageAlignItem }) {
+  const { updateItems } = useEditor();
+  const ids = items.map((i) => i.id);
+  const first = items[0];
+  const allUnlocked = items.every((i) => !i.locked);
+
+  return (
+    <>
+      <div className="panel__section-title">{items.length > 1 ? `${items.length} images selected` : 'Image'}</div>
+
+      {allUnlocked && (
+        <>
+          <div className="panel__section-title">Position &amp; size</div>
+          <div className="prop-row">
+            <label>Width</label>
+            <input type="number" value={Math.round(first.width)} onChange={(e) => updateItems(ids, () => ({ width: Number(e.target.value) }))} />
+          </div>
+          <div className="prop-row">
+            <label>Height</label>
+            <input type="number" value={Math.round(first.height)} onChange={(e) => updateItems(ids, () => ({ height: Number(e.target.value) }))} />
+          </div>
+          <SliderRow label="Rotation" min={-180} max={180} value={first.rotation || 0} onChange={(v) => updateItems(ids, () => ({ rotation: v }))} />
+        </>
+      )}
+
+      <div className="panel__section-title">Fill &amp; border</div>
+      <div className="prop-row">
+        <label>Background</label>
+        <input type="color" value={first.bgColor || '#faf9f6'} onChange={(e) => updateItems(ids, () => ({ bgColor: e.target.value }))} />
+      </div>
+      <div className="prop-row">
+        <label>Border color</label>
+        <input type="color" value={first.borderColor || '#262420'} onChange={(e) => updateItems(ids, () => ({ borderColor: e.target.value }))} />
+      </div>
+      <SliderRow label="Border width" min={0} max={6} value={first.borderWidth || 0} onChange={(v) => updateItems(ids, () => ({ borderWidth: v }))} />
+      <SliderRow label="Corner radius" min={0} max={24} value={first.cornerRadius ?? 0} onChange={(v) => updateItems(ids, () => ({ cornerRadius: v }))} />
+
+      <AlignmentSection pageAlignItem={pageAlignItem} />
+    </>
+  );
+}
+
 // Prompt 24 item 4: a mixed shape+content selection used to show nothing
 // but a label — no controls, no guidance. `fill`/`bgColor` are different
 // field names for the same "background" concept (shapes render `fill`,
@@ -697,6 +744,9 @@ export default function PropertiesPanel() {
           )}
           {selectedItems.length > 0 && kinds.size === 1 && kinds.has('shape') && (
             <ShapeProperties items={selectedItems} pageAlignItem={pageAlignItem} />
+          )}
+          {selectedItems.length > 0 && kinds.size === 1 && kinds.has('image') && (
+            <ImageProperties items={selectedItems} pageAlignItem={pageAlignItem} />
           )}
           {selectedItems.length > 0 && kinds.size > 1 && (
             <MixedProperties items={selectedItems} />

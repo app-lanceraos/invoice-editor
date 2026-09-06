@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { useEditor } from '../state/EditorContext';
 import { copyToClipboard, readClipboard } from '../state/clipboard';
+import { loadImageFile } from '../utils/imageFile';
 
 export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
   const {
     template, selection, setSelection,
     undo, redo, runSave,
     deleteItems, canDeleteSelection, deleteBlockLine, canDeleteBlockLine, duplicateItems, groupItems,
-    addItemsFromClipboard,
+    addItemsFromClipboard, addImageItem,
   } = useEditor();
 
   useEffect(() => {
@@ -45,12 +46,12 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       // selection" (duplicateItems itself would silently no-op on a
       // content-only selection anyway, but every SURFACE that offers
       // Duplicate should agree on when it's actually available, not just
-      // the underlying data-layer guard).
+      // the underlying data-layer guard). Prompt 27: `image` counts too.
       if (mod && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         const canDuplicate = selection.ids.some((id) => {
           const item = template.items.find((i) => i.id === id);
-          return item && item.kind === 'shape' && !item.locked;
+          return item && (item.kind === 'shape' || item.kind === 'image') && !item.locked;
         });
         if (canDuplicate) duplicateItems(selection.ids);
         return;
@@ -61,10 +62,13 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
       // selection copies just the shape(s); a pure-content selection
       // copies nothing (and leaves whatever was already on the
       // clipboard untouched, rather than clobbering it with an empty
-      // payload).
+      // payload). Prompt 27: `image` travels through this same
+      // clipboard, alongside shapes.
       if (mod && e.key.toLowerCase() === 'c') {
         if (selection.ids.length > 0) {
-          const items = template.items.filter((i) => selection.ids.includes(i.id) && i.kind === 'shape');
+          const items = template.items.filter(
+            (i) => selection.ids.includes(i.id) && (i.kind === 'shape' || i.kind === 'image')
+          );
           if (items.length > 0) copyToClipboard({ items });
         }
         return;
@@ -101,4 +105,30 @@ export function useKeyboardShortcuts({ onPreviewToggle } = {}) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [template, selection, undo, redo, runSave, deleteItems, canDeleteSelection, deleteBlockLine, canDeleteBlockLine, duplicateItems, groupItems, setSelection, addItemsFromClipboard, onPreviewToggle]);
+
+  // Prompt 27 item 2: real OS clipboard image data (e.g. a screenshot
+  // copied elsewhere, then Cmd/Ctrl+V'd here) — a genuinely separate
+  // mechanism from the app's own internal item clipboard above (that one
+  // is keydown-driven and reads localStorage; this is the browser's
+  // native `paste` event, which is what actually carries real clipboard
+  // content). Deliberately does nothing at all when the pasted data
+  // isn't an image — no preventDefault, no side effect — so the keydown
+  // handler's own Cmd+V branch (a completely separate event) keeps
+  // pasting shapes/images from the internal clipboard exactly as before;
+  // the two coexist because each only ever acts on the case it owns.
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imageItem = Array.from(items).find((it) => it.type?.startsWith('image/'));
+      if (!imageItem) return; // no image in this paste — leave it to the internal-clipboard handler
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) loadImageFile(file, addImageItem);
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [addImageItem]);
 }

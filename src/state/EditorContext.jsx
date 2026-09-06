@@ -258,9 +258,14 @@ export function EditorProvider({ children }) {
   // content selection still duplicates the shape(s) in it. Shapes are
   // completely unaffected — this only ever narrows `source`, and only
   // when a content item is present.
+  // Prompt 27: `image` items are single-instance in the same sense a
+  // shape is (freely multipliable, no "one Logo only" rule) — included
+  // here alongside shape, not treated like content.
   const duplicateItems = useCallback(
     (ids) => {
-      const source = template.items.filter((i) => ids.includes(i.id) && !i.locked && i.kind === 'shape');
+      const source = template.items.filter(
+        (i) => ids.includes(i.id) && !i.locked && (i.kind === 'shape' || i.kind === 'image')
+      );
       if (source.length === 0) return;
       const copies = source.map((i) => ({
         ...i,
@@ -294,7 +299,10 @@ export function EditorProvider({ children }) {
   // from another tab/session via the shared localStorage clipboard).
   const addItemsFromClipboard = useCallback(
     (itemsData) => {
-      const shapesOnly = (itemsData || []).filter((d) => d.kind === 'shape');
+      // Prompt 27: `image` travels through the same internal item
+      // clipboard shapes already use — copy/paste is a "shape-like"
+      // capability, per duplicateItems' own comment above.
+      const shapesOnly = (itemsData || []).filter((d) => d.kind === 'shape' || d.kind === 'image');
       if (shapesOnly.length === 0) return;
       const stamp = Date.now();
       const pasted = shapesOnly.map((itemData, i) => ({
@@ -322,6 +330,54 @@ export function EditorProvider({ children }) {
       // because array order is now genuine paint order.
       commit({ ...template, items: appendRespectingZOrder(template.items, [shape]) });
       setSelection({ ids: [shape.id], part: null });
+    },
+    [template, commit]
+  );
+
+  // Prompt 27: a third top-level kind, `image` — a user-provided picture
+  // (file picker or OS clipboard paste, see ShapeLibraryPanel/
+  // useKeyboardShortcuts), stored as an in-memory data URL. Explicitly
+  // local-only per this prompt: no upload to any storage backend — that's
+  // deferred to the real backend integration phase. `sourceWidth`/
+  // `sourceHeight` are the image's TRUE decoded pixel dimensions,
+  // captured once here and never touched again — CanvasItem compares the
+  // item's current rendered width/height against these to drive the
+  // pixelation warning as it's resized. `naturalWidth`/`naturalHeight`
+  // (the DISPLAY size chosen here, capped/aspect-preserved) are the same
+  // "size the box was authored at, scaled via CSS transform" convention
+  // every other item already uses — unrelated to `sourceWidth/Height`,
+  // which is about detecting upscaling, not rendering.
+  // `allowFreeLayering: true` is what makes this the first real user of
+  // Prompt 26's flag — an image can be reordered above content on
+  // purpose (a "PAID" stamp, say); `appendRespectingZOrder` still
+  // inserts it (via its "not a constrained shape" branch) at the very
+  // end by default, since new-item-on-top is the sensible default
+  // absent any other instruction, and nothing stops the layers panel
+  // from moving it later anyway.
+  const addImageItem = useCallback(
+    (dataUrl, sourceWidth, sourceHeight) => {
+      const MAX_DISPLAY_DIM = 200;
+      const scale = Math.min(1, MAX_DISPLAY_DIM / Math.max(sourceWidth, sourceHeight));
+      const width = Math.max(16, Math.round(sourceWidth * scale));
+      const height = Math.max(16, Math.round(sourceHeight * scale));
+      const item = {
+        id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'image',
+        dataUrl,
+        x: Math.round((template.page.width - width) / 2),
+        y: Math.round((template.page.height - height) / 2),
+        width,
+        height,
+        naturalWidth: width,
+        naturalHeight: height,
+        sourceWidth,
+        sourceHeight,
+        rotation: 0,
+        allowFreeLayering: true,
+        cornerRadius: 0,
+      };
+      commit({ ...template, items: appendRespectingZOrder(template.items, [item]) });
+      setSelection({ ids: [item.id], part: null });
     },
     [template, commit]
   );
@@ -505,6 +561,7 @@ export function EditorProvider({ children }) {
     duplicateItems,
     addItemsFromClipboard,
     addShape,
+    addImageItem,
     moveSelectionZ,
     reorderItems,
     toggleItemLocked,
